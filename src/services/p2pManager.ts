@@ -252,11 +252,21 @@ export class P2PManager {
       return false;
     }
 
-    log('JOIN', 'Attempting to join room', { hostPeerId, userName, hasStream: !!localStream });
+    log('JOIN', '🚀 Attempting to join room', {
+      hostPeerId,
+      userName,
+      hasStream: !!localStream,
+      myPeerId: this.myId,
+      peerState: this.peer?.open ? 'open' : 'not open'
+    });
 
     // Store local stream for later use
     if (localStream) {
       this.localStream = localStream;
+      log('JOIN', '📹 Local stream stored', {
+        audioTracks: localStream.getAudioTracks().length,
+        videoTracks: localStream.getVideoTracks().length
+      });
     }
 
     // Retry logic for connection
@@ -265,7 +275,7 @@ export class P2PManager {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        log('JOIN', `Connection attempt ${attempt}/${maxRetries}`);
+        log('JOIN', `🔄 Connection attempt ${attempt}/${maxRetries} to host: ${hostPeerId}`);
         
         // Connect to host and wait for connection to be established
         await this.connectToPeer(hostPeerId, localStream);
@@ -275,11 +285,18 @@ export class P2PManager {
         
         // Verify connection is actually open
         const dataConn = this.dataConnections.get(hostPeerId);
+        log('JOIN', '🔍 Checking data connection', {
+          hasConnection: !!dataConn,
+          isOpen: dataConn?.open,
+          connectionId: dataConn?.connectionId
+        });
+        
         if (!dataConn || !dataConn.open) {
           throw new Error('Data connection not established');
         }
         
         // Now that connection is open, send our info to host
+        log('JOIN', '📤 Sending peer-info to host', { hostPeerId, userName });
         this.sendMessage(hostPeerId, {
           type: 'peer-info',
           data: {
@@ -291,11 +308,11 @@ export class P2PManager {
           timestamp: Date.now(),
         });
 
-        log('JOIN', 'Successfully joined room');
+        log('JOIN', '✅ Successfully joined room and sent peer-info');
         return true;
       } catch (error) {
         lastError = error as Error;
-        log('JOIN', `Attempt ${attempt} failed`, { error: (error as Error).message });
+        log('JOIN', `❌ Attempt ${attempt} failed`, { error: (error as Error).message });
         
         // Clean up failed connection before retry
         this.dataConnections.delete(hostPeerId);
@@ -308,7 +325,7 @@ export class P2PManager {
       }
     }
 
-    log('JOIN', 'All connection attempts failed', { lastError: lastError?.message });
+    log('JOIN', '❌ All connection attempts failed', { lastError: lastError?.message });
     return false;
   }
 
@@ -721,11 +738,16 @@ export class P2PManager {
    */
   private handleIncomingDataConnection(dataConn: DataConnection) {
     const peerId = dataConn.peer;
-    log('CONN', 'Handling incoming data connection', { peerId });
+    log('CONN', '📥 Handling incoming data connection', {
+      peerId,
+      isHost: this.isHost,
+      currentPeersCount: this.peers.size,
+      existingPeers: Array.from(this.peers.keys())
+    });
 
     // Check if room is full (host only)
     if (this.isHost && this.isRoomFull()) {
-      log('CONN', 'Room is full, rejecting connection', { peerId, currentCount: this.peers.size });
+      log('CONN', '🚫 Room is full, rejecting connection', { peerId, currentCount: this.peers.size });
       
       // Send room-full message before closing
       dataConn.on('open', () => {
@@ -745,15 +767,21 @@ export class P2PManager {
 
     this.setConnectionState(peerId, ConnectionState.CONNECTING);
     this.dataConnections.set(peerId, dataConn);
+    log('CONN', '📝 Data connection stored', { peerId, totalConnections: this.dataConnections.size });
 
     dataConn.on('open', () => {
-      log('CONN', 'Incoming data connection opened', { peerId });
+      log('CONN', '✅ Incoming data connection opened', { peerId, isHost: this.isHost });
       this.setConnectionState(peerId, ConnectionState.CONNECTED);
 
       // If host, send list of existing participants
       if (this.isHost) {
         const peerList = Array.from(this.peers.values());
-        log('CONN', 'Sending peer list to new participant', { peerId, peerCount: peerList.length });
+        log('CONN', '📤 HOST: Sending peer list to new participant', {
+          peerId,
+          peerCount: peerList.length,
+          peerIds: peerList.map(p => p.id),
+          peerNames: peerList.map(p => p.name)
+        });
         this.sendMessage(peerId, {
           type: 'peer-list',
           data: peerList,
@@ -1311,17 +1339,23 @@ export class P2PManager {
    * Gérer les messages P2P
    */
   private handleMessage(message: P2PMessage, fromPeerId: string) {
-    log('MSG', `Received message: ${message.type}`, { from: fromPeerId });
+    log('MSG', `📨 Received message: ${message.type}`, { from: fromPeerId, isHost: this.isHost });
     
     switch (message.type) {
       case 'room-full':
-        log('MSG', 'Room is full');
+        log('MSG', '🚫 Room is full');
         this.onRoomFullCallback?.();
         this.handlePeerDisconnection(fromPeerId);
         break;
 
       case 'peer-info':
-        log('MSG', 'Received peer info', { name: message.data.name, hasStream: message.data.hasStream });
+        log('MSG', '👤 Received peer-info', {
+          from: fromPeerId,
+          name: message.data.name,
+          hasStream: message.data.hasStream,
+          isHost: this.isHost,
+          currentPeersCount: this.peers.size
+        });
         
         // Register the peer
         this.peers.set(fromPeerId, {
@@ -1330,9 +1364,16 @@ export class P2PManager {
           isHost: message.data.isHost || false,
           joinedAt: Date.now(),
         });
+        
+        log('MSG', '✅ Peer registered', {
+          peerId: fromPeerId,
+          totalPeers: this.peers.size,
+          allPeerIds: Array.from(this.peers.keys())
+        });
 
         // If host, notify all other participants AND initiate media call
         if (this.isHost) {
+          log('MSG', '📢 HOST: Broadcasting peer-joined to other participants');
           const peerJoinedMessage: P2PMessage = {
             type: 'peer-joined',
             data: this.peers.get(fromPeerId),
@@ -1345,47 +1386,139 @@ export class P2PManager {
           // Host initiates media call to the new participant
           // This ensures bidirectional media flow
           if (this.localStream && this.peer && !this.mediaConnections.has(fromPeerId) && !this.pendingMediaConnections.has(fromPeerId)) {
-            log('MSG', 'Host initiating media call to new participant', { peerId: fromPeerId });
+            log('MSG', '📞 HOST: Initiating media call to new participant', {
+              peerId: fromPeerId,
+              hasLocalStream: !!this.localStream,
+              localStreamTracks: this.localStream?.getTracks().length
+            });
             setTimeout(() => {
               this.callPeer(fromPeerId);
             }, 500);
+          } else {
+            log('MSG', '⚠️ HOST: Cannot initiate media call', {
+              hasLocalStream: !!this.localStream,
+              hasPeer: !!this.peer,
+              hasMediaConnection: this.mediaConnections.has(fromPeerId),
+              hasPendingMediaConnection: this.pendingMediaConnections.has(fromPeerId)
+            });
           }
         }
 
+        log('MSG', '🔔 Calling onPeerConnectedCallback', { peerId: fromPeerId, name: message.data.name });
         this.onPeerConnectedCallback?.(fromPeerId, message.data);
         break;
 
       case 'peer-list':
         // Receive participant list and connect to them
         const peerList = message.data as PeerInfo[];
-        log('MSG', 'Received peer list', { count: peerList.length });
+        log('MSG', '📋 Received peer-list', {
+          count: peerList.length,
+          peers: peerList.map(p => ({ id: p.id, name: p.name })),
+          fromPeerId,
+          myId: this.myId
+        });
         
+        // CRITICAL FIX: First, ensure the host (sender of peer-list) is registered
+        // The host sends the peer-list, so fromPeerId IS the host
+        // We need to make sure the host is in our peers map and UI is notified
+        if (!this.peers.has(fromPeerId)) {
+          // Find host info in the peer list
+          const hostInfo = peerList.find(p => p.id === fromPeerId);
+          if (hostInfo) {
+            log('MSG', '👑 Registering HOST from peer-list', {
+              hostId: fromPeerId,
+              hostName: hostInfo.name
+            });
+            this.peers.set(fromPeerId, hostInfo);
+            this.onPeerConnectedCallback?.(fromPeerId, hostInfo);
+          } else {
+            // Host not in list (shouldn't happen, but handle it)
+            log('MSG', '⚠️ Host not found in peer-list, creating entry', { fromPeerId });
+            const hostEntry: PeerInfo = {
+              id: fromPeerId,
+              name: 'Host',
+              isHost: true,
+              joinedAt: Date.now()
+            };
+            this.peers.set(fromPeerId, hostEntry);
+            this.onPeerConnectedCallback?.(fromPeerId, hostEntry);
+          }
+        }
+        
+        // Process other peers in the list
         peerList.forEach((peer) => {
-          if (peer.id !== this.myId) {
-            // Add peer to our internal list
+          log('MSG', '🔍 Processing peer from list', {
+            peerId: peer.id,
+            peerName: peer.name,
+            isMyself: peer.id === this.myId,
+            isFromPeer: peer.id === fromPeerId,
+            alreadyInPeers: this.peers.has(peer.id),
+            alreadyConnected: this.dataConnections.has(peer.id)
+          });
+          
+          // Skip ourselves
+          if (peer.id === this.myId) {
+            log('MSG', '⏭️ Skipping self', { peerId: peer.id });
+            return;
+          }
+          
+          // Skip the host (already handled above)
+          if (peer.id === fromPeerId) {
+            log('MSG', '⏭️ Skipping host (already registered)', { peerId: peer.id });
+            return;
+          }
+          
+          // Add other peers to our internal list
+          if (!this.peers.has(peer.id)) {
             this.peers.set(peer.id, peer);
+            log('MSG', '✅ Peer added to list', { peerId: peer.id, totalPeers: this.peers.size });
             
             // Notify callback that this peer is connected (for UI update)
+            log('MSG', '🔔 Calling onPeerConnectedCallback for peer from list', { peerId: peer.id });
             this.onPeerConnectedCallback?.(peer.id, peer);
-            
-            // Connect to other participants (not the host we're already connected to)
-            if (peer.id !== fromPeerId && !this.dataConnections.has(peer.id)) {
-              log('MSG', 'Connecting to peer from list', { peerId: peer.id });
-              setTimeout(() => this.connectToPeer(peer.id, this.localStream), 500);
-            }
           }
+          
+          // Connect to other participants (not the host we're already connected to)
+          if (!this.dataConnections.has(peer.id)) {
+            log('MSG', '🔗 Connecting to peer from list', { peerId: peer.id });
+            setTimeout(() => this.connectToPeer(peer.id, this.localStream), 500);
+          }
+        });
+        
+        log('MSG', '📋 Peer-list processing complete', {
+          totalPeers: this.peers.size,
+          peerIds: Array.from(this.peers.keys())
         });
         break;
 
       case 'peer-joined':
         // A new participant joined
         const newPeer = message.data as PeerInfo;
-        log('MSG', 'New peer joined', { peerId: newPeer.id, name: newPeer.name });
+        log('MSG', '🆕 New peer joined notification', {
+          peerId: newPeer.id,
+          name: newPeer.name,
+          isMyself: newPeer.id === this.myId,
+          alreadyConnected: this.dataConnections.has(newPeer.id),
+          alreadyInPeers: this.peers.has(newPeer.id)
+        });
         
-        if (newPeer.id !== this.myId && !this.dataConnections.has(newPeer.id)) {
-          this.peers.set(newPeer.id, newPeer);
-          // Connect to new participant with local stream
-          setTimeout(() => this.connectToPeer(newPeer.id, this.localStream), 500);
+        if (newPeer.id !== this.myId) {
+          // Add to peers map if not already there
+          if (!this.peers.has(newPeer.id)) {
+            this.peers.set(newPeer.id, newPeer);
+            log('MSG', '✅ New peer added to peers map', { peerId: newPeer.id, totalPeers: this.peers.size });
+            
+            // CRITICAL: Notify UI about the new peer
+            log('MSG', '🔔 Calling onPeerConnectedCallback for new peer', { peerId: newPeer.id, name: newPeer.name });
+            this.onPeerConnectedCallback?.(newPeer.id, newPeer);
+          }
+          
+          // Connect to new participant if not already connected
+          if (!this.dataConnections.has(newPeer.id)) {
+            log('MSG', '🔗 Connecting to new peer', { peerId: newPeer.id });
+            // Connect to new participant with local stream
+            setTimeout(() => this.connectToPeer(newPeer.id, this.localStream), 500);
+          }
         }
         break;
 

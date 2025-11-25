@@ -407,6 +407,13 @@ export function RoomPage() {
   useEffect(() => {
     if (!state?.userName) return;
     
+    console.log('[RoomPage] 🚀 Starting initialization', {
+      userName: state.userName,
+      isHost: state.isHost,
+      hostPeerId: state.hostPeerId,
+      roomCode: code
+    });
+    
     // Use a local variable to track if this effect instance should proceed
     let isMounted = true;
     let currentManager: P2PManager | null = null;
@@ -415,6 +422,7 @@ export function RoomPage() {
     const init = async () => {
       // Skip if already initialized AND we have a valid manager
       if (initializationComplete.current && p2pManager.current) {
+        console.log('[RoomPage] ⏭️ Already initialized, skipping');
         return;
       }
 
@@ -424,12 +432,18 @@ export function RoomPage() {
       }
 
       // 1. Initialize P2PManager FIRST
+      console.log('[RoomPage] 📦 Creating P2PManager');
       const manager = new P2PManager();
       currentManager = manager;
       p2pManager.current = manager;
 
       // 2. Setup ALL callbacks BEFORE any connections
       manager.onPeerConnected((peerId, peerInfo) => {
+        console.log('[RoomPage] 🎉 onPeerConnected callback fired!', {
+          peerId,
+          peerName: peerInfo.name,
+          currentParticipantsCount: participants.size
+        });
         dispatchParticipants({
           type: 'ADD_PARTICIPANT',
           payload: {
@@ -560,6 +574,7 @@ export function RoomPage() {
       });
 
       // 3. Capture media BEFORE peer initialization
+      console.log('[RoomPage] 📹 Capturing local media');
       const capturedStream = await captureLocalMedia(state.audioEnabled, state.videoEnabled);
       
       if (!isMounted) {
@@ -571,17 +586,25 @@ export function RoomPage() {
       currentStream = capturedStream;
       
       if (capturedStream) {
+        console.log('[RoomPage] ✅ Local media captured', {
+          audioTracks: capturedStream.getAudioTracks().length,
+          videoTracks: capturedStream.getVideoTracks().length
+        });
         setLocalStream(capturedStream);
         localStreamRef.current = capturedStream;
         setMediaError(null);
       } else {
+        console.log('[RoomPage] ⚠️ No local media captured');
         setVideoEnabled(false);
         setAudioEnabled(false);
       }
 
       // 4. Initialize peer AFTER media capture
       const peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`;
+      console.log('[RoomPage] 🔑 Generated peer ID', { peerId, isHost: state.isHost });
+      
       try {
+        console.log('[RoomPage] 🔌 Initializing peer connection');
         const id = await manager.initialize(peerId, state.isHost);
         
         if (!isMounted) {
@@ -590,6 +613,7 @@ export function RoomPage() {
           return;
         }
         
+        console.log('[RoomPage] ✅ Peer initialized', { id, isHost: state.isHost });
         setMyId(id);
         setConnected(true);
 
@@ -608,14 +632,26 @@ export function RoomPage() {
 
         // 6. Create or join room with proper delay
         if (state.isHost) {
+          console.log('[RoomPage] 👑 Creating room as HOST');
           manager.createRoom(state.userName);
           // Add hash for sharing
           const newUrl = `${window.location.pathname}${window.location.search}#peer_id=${id}`;
+          console.log('[RoomPage] 🔗 Setting URL hash for sharing', { newUrl, peerId: id });
           window.history.replaceState(null, '', newUrl);
         } else if (state.hostPeerId) {
+          console.log('[RoomPage] 🤝 Joining room as PARTICIPANT', {
+            hostPeerId: state.hostPeerId,
+            myPeerId: id
+          });
           // Small delay to ensure everything is ready
           await new Promise(resolve => setTimeout(resolve, 100));
-          await manager.joinRoom(state.hostPeerId, state.userName, capturedStream);
+          const joinResult = await manager.joinRoom(state.hostPeerId, state.userName, capturedStream);
+          console.log('[RoomPage] 📊 Join room result', { success: joinResult });
+        } else {
+          console.log('[RoomPage] ⚠️ Not host and no hostPeerId provided!', {
+            isHost: state.isHost,
+            hostPeerId: state.hostPeerId
+          });
         }
 
         // Start quality and audio level monitoring after connection
