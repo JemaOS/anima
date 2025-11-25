@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hors Ligne - Anima</title>
+  <style>
+    body {
+      font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      margin: 0;
+      background: #0F0F0F;
+      color: #E8EAED;
+      text-align: center;
+      padding: 20px;
+    }
+    .offline-container {
+      max-width: 500px;
+    }
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 1rem;
+      color: #FFFFFF;
+    }
+    p {
+      font-size: 1.2rem;
+      line-height: 1.6;
+      color: #9AA0A6;
+      margin-bottom: 2rem;
+    }
+    .retry-btn {
+      padding: 12px 30px;
+      font-size: 1rem;
+      background: #4285F4;
+      color: white;
+      border: none;
+      border-radius: 24px;
+      cursor: pointer;
+      font-weight: 600;
+      font-family: 'Google Sans', sans-serif;
+      transition: background 150ms;
+    }
+    .retry-btn:hover {
+      background: #5C9AFF;
+    }
+    .icon {
+      font-size: 4rem;
+      margin-bottom: 1.5rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="offline-container">
+    <div class="icon">📡</div>
+    <h1>Vous êtes hors ligne</h1>
+    <p>
+      Anima nécessite une connexion Internet active pour les visioconférences.
+      Veuillez vérifier votre connexion et réessayer.
+    </p>
+    <button class="retry-btn" onclick="window.location.reload()">
+      Réessayer
+    </button>
+  </div>
+  
+  <script>
+    // Détecter le retour en ligne
+    window.addEventListener('online', () => {
+      window.location.reload();
+    });
+  </script>
+</body>
+</html>
