@@ -446,7 +446,7 @@ export class P2PManager {
    */
   private initiateMediaConnection(peerId: string, localStream: MediaStream | null): void {
     if (!this.peer) {
-      log('MEDIA', 'Cannot initiate media - no peer instance');
+      log('MEDIA', '❌ Cannot initiate media - no peer instance');
       return;
     }
 
@@ -455,7 +455,7 @@ export class P2PManager {
     
     // If no stream available, create a placeholder and notify when ready
     if (!streamToUse || streamToUse.getTracks().length === 0) {
-      log('MEDIA', 'No local stream available, will connect when stream is ready', { peerId });
+      log('MEDIA', '⚠️ No local stream available, will connect when stream is ready', { peerId });
       return;
     }
 
@@ -464,11 +464,21 @@ export class P2PManager {
       log('MEDIA', 'Media connection already exists', { peerId });
       return;
     }
+    
+    // Check if already have pending media connection
+    if (this.pendingMediaConnections.has(peerId)) {
+      log('MEDIA', 'Pending media connection already exists', { peerId });
+      return;
+    }
 
-    log('MEDIA', 'Initiating media call', {
+    log('MEDIA', '📞 Initiating media call', {
       peerId,
       audioTracks: streamToUse.getAudioTracks().length,
-      videoTracks: streamToUse.getVideoTracks().length
+      videoTracks: streamToUse.getVideoTracks().length,
+      audioTrackIds: streamToUse.getAudioTracks().map(t => t.id),
+      videoTrackIds: streamToUse.getVideoTracks().map(t => t.id),
+      audioEnabled: streamToUse.getAudioTracks().map(t => t.enabled),
+      videoEnabled: streamToUse.getVideoTracks().map(t => t.enabled)
     });
 
     const mediaConn = this.peer.call(peerId, streamToUse);
@@ -486,13 +496,36 @@ export class P2PManager {
     const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
     if (pc) {
       this.setupICEMonitoring(pc, peerId);
+      
+      // DIAGNOSTIC: Log peer connection details
+      log('MEDIA', '📊 Peer connection setup for outgoing call', {
+        peerId,
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        signalingState: pc.signalingState
+      });
+      
+      // Monitor track events on the peer connection
+      pc.ontrack = (event) => {
+        log('MEDIA', '🎯 ontrack event fired!', {
+          peerId,
+          trackKind: event.track.kind,
+          trackId: event.track.id,
+          trackEnabled: event.track.enabled,
+          trackMuted: event.track.muted,
+          trackReadyState: event.track.readyState,
+          streamsCount: event.streams.length
+        });
+      };
     }
 
     mediaConn.on('stream', (remoteStream) => {
-      log('MEDIA', 'Received remote stream', {
+      log('MEDIA', '🎥 Received remote stream (outgoing call)', {
         peerId,
         audioTracks: remoteStream.getAudioTracks().length,
-        videoTracks: remoteStream.getVideoTracks().length
+        videoTracks: remoteStream.getVideoTracks().length,
+        audioTrackStates: remoteStream.getAudioTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
+        videoTrackStates: remoteStream.getVideoTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState }))
       });
       
       // Move from pending to active
@@ -501,7 +534,7 @@ export class P2PManager {
       
       // Ensure audio tracks are enabled
       remoteStream.getAudioTracks().forEach(track => {
-        log('MEDIA', 'Remote audio track state', {
+        log('MEDIA', '🔊 Remote audio track state (before enable)', {
           peerId,
           enabled: track.enabled,
           muted: track.muted,
@@ -509,13 +542,33 @@ export class P2PManager {
         });
         // Force enable audio track
         track.enabled = true;
+        log('MEDIA', '🔊 Remote audio track state (after enable)', {
+          peerId,
+          enabled: track.enabled
+        });
+      });
+      
+      // Ensure video tracks are enabled
+      remoteStream.getVideoTracks().forEach(track => {
+        log('MEDIA', '📹 Remote video track state (before enable)', {
+          peerId,
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState
+        });
+        // Force enable video track
+        track.enabled = true;
+        log('MEDIA', '📹 Remote video track state (after enable)', {
+          peerId,
+          enabled: track.enabled
+        });
       });
       
       this.onStreamCallback?.(peerId, remoteStream);
     });
 
     mediaConn.on('error', (error) => {
-      log('MEDIA', 'Media connection error', { peerId, error: (error as any).message || error });
+      log('MEDIA', '❌ Media connection error', { peerId, error: (error as any).message || error });
       this.pendingMediaConnections.delete(peerId);
       
       // Attempt to re-establish media connection
@@ -732,62 +785,114 @@ export class P2PManager {
    */
   private handleIncomingCall(mediaConn: MediaConnection) {
     const peerId = mediaConn.peer;
-    log('MEDIA', 'Handling incoming call', { peerId, hasLocalStream: !!this.localStream });
+    log('MEDIA', '🔔 Handling incoming call', { peerId, hasLocalStream: !!this.localStream });
 
-    // If we have a local stream, answer with it
+    // Store as pending first
+    this.pendingMediaConnections.set(peerId, mediaConn);
+
+    // Helper function to setup handlers after answering
+    const setupHandlersAfterAnswer = () => {
+      // Setup ICE monitoring
+      const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
+      if (pc) {
+        this.setupICEMonitoring(pc, peerId);
+        
+        // Log the peer connection state for debugging
+        log('MEDIA', '📊 Peer connection state after answer', {
+          peerId,
+          connectionState: pc.connectionState,
+          iceConnectionState: pc.iceConnectionState,
+          signalingState: pc.signalingState
+        });
+      }
+
+      mediaConn.on('stream', (remoteStream) => {
+        log('MEDIA', '🎥 Received stream from incoming call', {
+          peerId,
+          audioTracks: remoteStream.getAudioTracks().length,
+          videoTracks: remoteStream.getVideoTracks().length,
+          audioTrackStates: remoteStream.getAudioTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
+          videoTrackStates: remoteStream.getVideoTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState }))
+        });
+        
+        this.pendingMediaConnections.delete(peerId);
+        this.mediaConnections.set(peerId, mediaConn);
+        
+        // Ensure audio tracks are enabled
+        remoteStream.getAudioTracks().forEach(track => {
+          log('MEDIA', '🔊 Enabling remote audio track', { peerId, trackId: track.id, wasEnabled: track.enabled });
+          track.enabled = true;
+        });
+        
+        // Ensure video tracks are enabled
+        remoteStream.getVideoTracks().forEach(track => {
+          log('MEDIA', '📹 Enabling remote video track', { peerId, trackId: track.id, wasEnabled: track.enabled });
+          track.enabled = true;
+        });
+        
+        this.onStreamCallback?.(peerId, remoteStream);
+      });
+
+      mediaConn.on('close', () => {
+        log('MEDIA', 'Incoming call closed', { peerId });
+        this.pendingMediaConnections.delete(peerId);
+        this.mediaConnections.delete(peerId);
+      });
+
+      mediaConn.on('error', (error) => {
+        log('MEDIA', 'Incoming call error', { peerId, error: (error as any).message || error });
+        this.pendingMediaConnections.delete(peerId);
+      });
+    };
+
+    // If we have a local stream, answer with it immediately
     if (this.localStream && this.localStream.getTracks().length > 0) {
-      log('MEDIA', 'Answering call with local stream', {
+      log('MEDIA', '✅ Answering call with local stream', {
         peerId,
         audioTracks: this.localStream.getAudioTracks().length,
-        videoTracks: this.localStream.getVideoTracks().length
+        videoTracks: this.localStream.getVideoTracks().length,
+        audioTrackIds: this.localStream.getAudioTracks().map(t => t.id),
+        videoTrackIds: this.localStream.getVideoTracks().map(t => t.id)
       });
       mediaConn.answer(this.localStream);
+      setupHandlersAfterAnswer();
     } else {
-      // Create a temporary empty stream and answer
-      // We'll update the tracks when local stream becomes available
-      log('MEDIA', 'Answering call with empty stream (will update later)', { peerId });
-      const emptyStream = new MediaStream();
-      mediaConn.answer(emptyStream);
-      
-      // Store this connection so we can update it later
-      this.pendingMediaConnections.set(peerId, mediaConn);
-    }
-
-    // Setup ICE monitoring
-    const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
-    if (pc) {
-      this.setupICEMonitoring(pc, peerId);
-    }
-
-    mediaConn.on('stream', (remoteStream) => {
-      log('MEDIA', 'Received stream from incoming call', {
-        peerId,
-        audioTracks: remoteStream.getAudioTracks().length,
-        videoTracks: remoteStream.getVideoTracks().length
+      // DIAGNOSTIC: This is a potential problem - no local stream available
+      log('MEDIA', '⚠️ WARNING: No local stream available for incoming call!', { peerId });
+      log('MEDIA', '⚠️ Local stream state:', {
+        hasLocalStream: !!this.localStream,
+        trackCount: this.localStream?.getTracks().length || 0
       });
       
-      this.pendingMediaConnections.delete(peerId);
-      this.mediaConnections.set(peerId, mediaConn);
+      // Set a timeout to check if stream becomes available
+      let answered = false;
+      const checkStreamInterval = setInterval(() => {
+        if (this.localStream && this.localStream.getTracks().length > 0 && !answered) {
+          clearInterval(checkStreamInterval);
+          answered = true;
+          log('MEDIA', '✅ Local stream now available, answering pending call', {
+            peerId,
+            audioTracks: this.localStream.getAudioTracks().length,
+            videoTracks: this.localStream.getVideoTracks().length
+          });
+          mediaConn.answer(this.localStream);
+          setupHandlersAfterAnswer();
+        }
+      }, 100);
       
-      // Ensure audio tracks are enabled
-      remoteStream.getAudioTracks().forEach(track => {
-        log('MEDIA', 'Enabling remote audio track', { peerId, trackId: track.id });
-        track.enabled = true;
-      });
-      
-      this.onStreamCallback?.(peerId, remoteStream);
-    });
-
-    mediaConn.on('close', () => {
-      log('MEDIA', 'Incoming call closed', { peerId });
-      this.pendingMediaConnections.delete(peerId);
-      this.mediaConnections.delete(peerId);
-    });
-
-    mediaConn.on('error', (error) => {
-      log('MEDIA', 'Incoming call error', { peerId, error: (error as any).message || error });
-      this.pendingMediaConnections.delete(peerId);
-    });
+      // Clear interval after 10 seconds to prevent memory leak
+      setTimeout(() => {
+        clearInterval(checkStreamInterval);
+        // If still no stream, answer with empty to prevent hanging
+        if (!answered && this.pendingMediaConnections.has(peerId)) {
+          answered = true;
+          log('MEDIA', '❌ Timeout waiting for local stream, answering with empty stream', { peerId });
+          const emptyStream = new MediaStream();
+          mediaConn.answer(emptyStream);
+          setupHandlersAfterAnswer();
+        }
+      }, 10000);
+    }
   }
 
   /**

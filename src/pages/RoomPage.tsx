@@ -455,9 +455,21 @@ export function RoomPage() {
       });
 
       manager.onStream((peerId, stream) => {
-        console.log('[RoomPage] Received stream from peer:', peerId, {
+        console.log('[RoomPage] 🎥 Received stream from peer:', peerId, {
           audioTracks: stream.getAudioTracks().length,
-          videoTracks: stream.getVideoTracks().length
+          videoTracks: stream.getVideoTracks().length,
+          audioTrackDetails: stream.getAudioTracks().map(t => ({
+            id: t.id,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState
+          })),
+          videoTrackDetails: stream.getVideoTracks().map(t => ({
+            id: t.id,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState
+          }))
         });
         
         dispatchParticipants({ type: 'SET_STREAM', payload: { id: peerId, stream } });
@@ -467,8 +479,30 @@ export function RoomPage() {
         
         // Ensure audio tracks are enabled on the stream
         stream.getAudioTracks().forEach(track => {
-          console.log('[RoomPage] Audio track state:', { enabled: track.enabled, muted: track.muted });
+          console.log('[RoomPage] 🔊 Audio track state before enable:', {
+            id: track.id,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState
+          });
           track.enabled = true;
+          console.log('[RoomPage] 🔊 Audio track state after enable:', {
+            enabled: track.enabled
+          });
+        });
+        
+        // Ensure video tracks are enabled on the stream
+        stream.getVideoTracks().forEach(track => {
+          console.log('[RoomPage] 📹 Video track state before enable:', {
+            id: track.id,
+            enabled: track.enabled,
+            muted: track.muted,
+            readyState: track.readyState
+          });
+          track.enabled = true;
+          console.log('[RoomPage] 📹 Video track state after enable:', {
+            enabled: track.enabled
+          });
         });
       });
 
@@ -561,7 +595,12 @@ export function RoomPage() {
 
         // 5. Update local stream in manager immediately after initialization
         if (capturedStream) {
-          console.log('[RoomPage] Updating local stream in manager');
+          console.log('[RoomPage] 📤 Updating local stream in manager', {
+            audioTracks: capturedStream.getAudioTracks().length,
+            videoTracks: capturedStream.getVideoTracks().length,
+            audioEnabled: capturedStream.getAudioTracks().map(t => t.enabled),
+            videoEnabled: capturedStream.getVideoTracks().map(t => t.enabled)
+          });
           manager.updateLocalStream(capturedStream);
         }
         

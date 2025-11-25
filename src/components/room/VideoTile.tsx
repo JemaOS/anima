@@ -46,26 +46,63 @@ export function VideoTile({
     const video = videoRef.current;
     if (!video || !participant.stream) return;
 
-    console.log(`[VideoTile] Setting up stream for ${participant.name}`, {
+    console.log(`[VideoTile] 🎬 Setting up stream for ${participant.name}`, {
       isLocal,
       audioTracks: participant.stream.getAudioTracks().length,
-      videoTracks: participant.stream.getVideoTracks().length
+      videoTracks: participant.stream.getVideoTracks().length,
+      audioTrackDetails: participant.stream.getAudioTracks().map(t => ({
+        id: t.id,
+        enabled: t.enabled,
+        muted: t.muted,
+        readyState: t.readyState
+      })),
+      videoTrackDetails: participant.stream.getVideoTracks().map(t => ({
+        id: t.id,
+        enabled: t.enabled,
+        muted: t.muted,
+        readyState: t.readyState
+      }))
     });
 
     // Force update even if stream reference is same
     if (video.srcObject !== participant.stream) {
+      console.log(`[VideoTile] 📺 Setting srcObject for ${participant.name}`);
       video.srcObject = participant.stream;
     }
 
     // Ensure audio is not muted for remote participants
     if (!isLocal) {
+      console.log(`[VideoTile] 🔊 Configuring audio for remote participant ${participant.name}`, {
+        currentMuted: video.muted,
+        currentVolume: video.volume
+      });
       video.muted = false;
       video.volume = 1.0;
       
       // Ensure audio tracks are enabled
       participant.stream.getAudioTracks().forEach(track => {
+        console.log(`[VideoTile] 🎤 Audio track for ${participant.name}:`, {
+          id: track.id,
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState
+        });
         if (!track.enabled) {
-          console.log(`[VideoTile] Enabling audio track for ${participant.name}`);
+          console.log(`[VideoTile] ✅ Enabling audio track for ${participant.name}`);
+          track.enabled = true;
+        }
+      });
+      
+      // Also ensure video tracks are enabled
+      participant.stream.getVideoTracks().forEach(track => {
+        console.log(`[VideoTile] 📹 Video track for ${participant.name}:`, {
+          id: track.id,
+          enabled: track.enabled,
+          muted: track.muted,
+          readyState: track.readyState
+        });
+        if (!track.enabled) {
+          console.log(`[VideoTile] ✅ Enabling video track for ${participant.name}`);
           track.enabled = true;
         }
       });
@@ -73,7 +110,12 @@ export function VideoTile({
 
     // Handle track changes - when tracks are added/removed from stream
     const handleTrackChange = (event: MediaStreamTrackEvent) => {
-      console.log(`[VideoTile] Track ${event.type} for ${participant.name}:`, event.track?.kind);
+      console.log(`[VideoTile] 🔄 Track ${event.type} for ${participant.name}:`, {
+        kind: event.track?.kind,
+        id: event.track?.id,
+        enabled: event.track?.enabled,
+        muted: event.track?.muted
+      });
       
       if (video.srcObject !== participant.stream) {
         video.srcObject = participant.stream;
@@ -83,11 +125,18 @@ export function VideoTile({
       if (event.track?.kind === 'audio' && !isLocal) {
         event.track.enabled = true;
         video.muted = false;
+        console.log(`[VideoTile] 🔊 Audio track added and enabled for ${participant.name}`);
+      }
+      
+      // If video track was added, ensure it's enabled
+      if (event.track?.kind === 'video' && !isLocal) {
+        event.track.enabled = true;
+        console.log(`[VideoTile] 📹 Video track added and enabled for ${participant.name}`);
       }
       
       // Force video to play after track change
       video.play().catch(err => {
-        console.log(`[VideoTile] Play after track change failed for ${participant.name}:`, err.name);
+        console.log(`[VideoTile] ⚠️ Play after track change failed for ${participant.name}:`, err.name);
       });
     };
 
@@ -99,17 +148,17 @@ export function VideoTile({
     const tracks = participant.stream.getTracks();
     const handleTrackEnded = (event: Event) => {
       const track = event.target as MediaStreamTrack;
-      console.log(`[VideoTile] Track ended for ${participant.name}:`, track.kind);
+      console.log(`[VideoTile] ❌ Track ended for ${participant.name}:`, track.kind);
     };
     
     const handleTrackMute = (event: Event) => {
       const track = event.target as MediaStreamTrack;
-      console.log(`[VideoTile] Track muted for ${participant.name}:`, track.kind, track.muted);
+      console.log(`[VideoTile] 🔇 Track muted for ${participant.name}:`, track.kind, track.muted);
     };
     
     const handleTrackUnmute = (event: Event) => {
       const track = event.target as MediaStreamTrack;
-      console.log(`[VideoTile] Track unmuted for ${participant.name}:`, track.kind);
+      console.log(`[VideoTile] 🔊 Track unmuted for ${participant.name}:`, track.kind);
     };
     
     tracks.forEach(track => {
@@ -122,14 +171,22 @@ export function VideoTile({
     const playVideo = async () => {
       try {
         await video.play();
-        console.log(`[VideoTile] Video playing for ${participant.name}`);
+        console.log(`[VideoTile] ▶️ Video playing for ${participant.name}`, {
+          paused: video.paused,
+          muted: video.muted,
+          volume: video.volume,
+          readyState: video.readyState
+        });
       } catch (err: any) {
-        console.log(`[VideoTile] Initial play failed for ${participant.name}:`, err.name);
+        console.log(`[VideoTile] ⚠️ Initial play failed for ${participant.name}:`, err.name, err.message);
         
         // If autoplay was blocked, try playing on user interaction
         if (err.name === 'NotAllowedError') {
+          console.log(`[VideoTile] 👆 Waiting for user interaction to play for ${participant.name}`);
           const playOnInteraction = () => {
-            video.play().catch(() => {});
+            video.play().then(() => {
+              console.log(`[VideoTile] ▶️ Video playing after interaction for ${participant.name}`);
+            }).catch(() => {});
             document.removeEventListener('click', playOnInteraction);
             document.removeEventListener('touchstart', playOnInteraction);
           };
