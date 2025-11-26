@@ -751,114 +751,103 @@ export function RoomPage() {
     }
   }, [myId, videoEnabled]);
 
-  // Toggle video - memoized with proper camera re-acquisition
+  // Toggle video - memoized with SIMPLE enable/disable approach
+  // CRITICAL FIX: Instead of removing/adding tracks (which breaks WebRTC),
+  // we simply enable/disable the existing track. This preserves the RTP stream.
   const toggleVideo = useCallback(async () => {
     const stream = localStreamRef.current;
     if (!stream) return;
 
-    const currentVideoTrack = stream.getVideoTracks()[0];
+    let currentVideoTrack = stream.getVideoTracks()[0];
     const newVideoEnabled = !videoEnabled;
 
     console.log('[toggleVideo] Starting toggle', {
       currentVideoEnabled: videoEnabled,
       newVideoEnabled,
       hasCurrentTrack: !!currentVideoTrack,
+      currentTrackEnabled: currentVideoTrack?.enabled,
       streamId: stream.id
     });
 
     if (newVideoEnabled) {
-      // Re-acquire camera when turning video back on
-      try {
-        // Stop the old track completely first to release the camera
-        if (currentVideoTrack) {
-          console.log('[toggleVideo] Stopping old video track', { trackId: currentVideoTrack.id });
-          currentVideoTrack.stop();
-          stream.removeTrack(currentVideoTrack);
-        }
-        
-        // Wait a bit for the camera to be released (important on mobile)
-        if (isMobileDevice()) {
-          await new Promise(resolve => setTimeout(resolve, 300));
-        }
-        
-        console.log('[toggleVideo] Requesting new camera stream...');
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          video: getVideoConstraints(facingMode),
-        });
-        
-        const newVideoTrack = newStream.getVideoTracks()[0];
-        if (newVideoTrack) {
-          console.log('[toggleVideo] Got new video track', {
-            trackId: newVideoTrack.id,
-            enabled: newVideoTrack.enabled,
-            muted: newVideoTrack.muted,
-            readyState: newVideoTrack.readyState
-          });
-          
-          // Add new video track
-          stream.addTrack(newVideoTrack);
-          
-          // Update refs
-          localStreamRef.current = stream;
-          
-          console.log('[toggleVideo] Updating P2P manager with stream', {
-            streamId: stream.id,
-            videoTracks: stream.getVideoTracks().length,
-            audioTracks: stream.getAudioTracks().length
-          });
-          
-          // Update P2P manager with new stream - CRITICAL for remote peers
-          p2pManager.current?.updateLocalStream(stream);
-          
-          // CRITICAL FIX: Create a new stream reference to force React re-render
-          // React doesn't detect changes to the same MediaStream object
-          // We need to clone the stream or create a new reference
-          const clonedStream = stream.clone();
-          
-          // Stop the cloned tracks and use the original stream's tracks
-          clonedStream.getTracks().forEach(t => t.stop());
-          
-          // Actually, let's just force a re-render by setting state twice
-          setLocalStream(prevStream => {
-            // Return a "new" reference by spreading into a new object wrapper
-            // But MediaStream can't be spread, so we use a different approach
-            return null;
-          });
-          
-          // Use requestAnimationFrame for smoother update
-          requestAnimationFrame(() => {
-            setLocalStream(stream);
-            console.log('[toggleVideo] Local stream state updated');
-          });
-        }
-        
+      // Re-enable video
+      if (currentVideoTrack && currentVideoTrack.readyState === 'live') {
+        // Track still exists and is live - just enable it
+        console.log('[toggleVideo] Re-enabling existing video track', { trackId: currentVideoTrack.id });
+        currentVideoTrack.enabled = true;
         setVideoEnabled(true);
-      } catch (error) {
-        console.error('[toggleVideo] Error re-acquiring camera:', error);
-        setMediaError('Erreur lors de la réactivation de la caméra');
-        setTimeout(() => setMediaError(null), 3000);
-        return;
+        
+        // Notify P2P manager
+        p2pManager.current?.updateLocalStream(stream);
+      } else {
+        // Track was stopped or doesn't exist - need to get a new one
+        try {
+          console.log('[toggleVideo] Getting new video track (old one was stopped)...');
+          
+          // Wait a bit for the camera to be released (important on mobile)
+          if (isMobileDevice()) {
+            await new Promise(resolve => setTimeout(resolve, 300));
+          }
+          
+          const newStream = await navigator.mediaDevices.getUserMedia({
+            video: getVideoConstraints(facingMode),
+          });
+          
+          const newVideoTrack = newStream.getVideoTracks()[0];
+          if (newVideoTrack) {
+            console.log('[toggleVideo] Got new video track', {
+              trackId: newVideoTrack.id,
+              enabled: newVideoTrack.enabled,
+              muted: newVideoTrack.muted,
+              readyState: newVideoTrack.readyState
+            });
+            
+            // Remove old track if exists
+            if (currentVideoTrack) {
+              stream.removeTrack(currentVideoTrack);
+              currentVideoTrack.stop();
+            }
+            
+            // Add new video track
+            stream.addTrack(newVideoTrack);
+            
+            // Update refs
+            localStreamRef.current = stream;
+            
+            console.log('[toggleVideo] Updating P2P manager with new track');
+            p2pManager.current?.updateLocalStream(stream);
+            
+            // Force re-render
+            setLocalStream(null);
+            requestAnimationFrame(() => {
+              setLocalStream(stream);
+              console.log('[toggleVideo] Local stream state updated');
+            });
+          }
+          
+          setVideoEnabled(true);
+        } catch (error) {
+          console.error('[toggleVideo] Error re-acquiring camera:', error);
+          setMediaError('Erreur lors de la réactivation de la caméra');
+          setTimeout(() => setMediaError(null), 3000);
+          return;
+        }
       }
     } else {
-      // Stop the track completely when turning off
+      // Disable video - JUST disable the track, don't remove it!
+      // This keeps the RTP stream alive and allows re-enabling later
       if (currentVideoTrack) {
-        console.log('[toggleVideo] Disabling video - stopping track', { trackId: currentVideoTrack.id });
-        currentVideoTrack.stop();
-        stream.removeTrack(currentVideoTrack);
+        console.log('[toggleVideo] Disabling video track (not removing)', { trackId: currentVideoTrack.id });
+        currentVideoTrack.enabled = false;
+        
+        // DON'T stop or remove the track - just disable it
+        // This preserves the WebRTC connection
       }
-      
-      // CRITICAL FIX: Also update P2P manager when disabling video
-      // This ensures remote peers know the video track is gone
-      console.log('[toggleVideo] Updating P2P manager after video disable');
-      p2pManager.current?.updateLocalStream(stream);
       
       setVideoEnabled(false);
       
-      // Force re-render for local display
-      setLocalStream(null);
-      requestAnimationFrame(() => {
-        setLocalStream(stream);
-      });
+      // Notify P2P manager about the state change
+      p2pManager.current?.updateLocalStream(stream);
     }
 
     p2pManager.current?.broadcast({
