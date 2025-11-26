@@ -896,19 +896,26 @@ export function RoomPage() {
           p2pManager.current?.updateLocalStream(stream);
           console.log('[toggleVideo] ✅ P2P manager updateLocalStream called');
           
-          // CRITICAL FIX: Set videoEnabled FIRST, then update stream state
-          // This ensures the UI shows video enabled before the stream is updated
+          // CRITICAL FIX: Set videoEnabled FIRST
           setVideoEnabled(true);
           console.log('[toggleVideo] ✅ videoEnabled set to true');
           
-          // CRITICAL FIX: Wait a bit for the track to be transmitted before sending media-state
-          // This ensures the remote peer receives the track before updating videoEnabled
-          await new Promise(resolve => setTimeout(resolve, 300));
+          // CRITICAL FIX: Force React to see a new stream reference
+          // by creating a new MediaStream with the same tracks
+          // This is necessary because React's useMemo won't detect track changes
+          // on the same stream object
+          const newStreamForUI = new MediaStream(stream.getTracks());
+          localStreamRef.current = newStreamForUI;
+          setLocalStream(newStreamForUI);
+          console.log('[toggleVideo] ✅ Local stream state updated with new reference', {
+            oldStreamId: stream.id,
+            newStreamId: newStreamForUI.id,
+            videoTracks: newStreamForUI.getVideoTracks().length,
+            audioTracks: newStreamForUI.getAudioTracks().length
+          });
           
-          // Now update the local stream state - use a single update, not null then stream
-          // The null/stream toggle was causing a flash of "no stream" state
-          setLocalStream(stream);
-          console.log('[toggleVideo] ✅ Local stream state updated');
+          // Also update P2P manager with the new stream reference
+          p2pManager.current?.updateLocalStream(newStreamForUI);
           
           console.log('[toggleVideo] Sending media-state with videoEnabled=true');
         }
