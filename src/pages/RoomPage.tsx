@@ -785,14 +785,16 @@ export function RoomPage() {
     let currentVideoTrack = stream.getVideoTracks()[0];
     const newVideoEnabled = !videoEnabled;
 
-    console.log('[toggleVideo] Starting toggle', {
+    console.log('[toggleVideo] 🎬 Starting toggle', {
       currentVideoEnabled: videoEnabled,
       newVideoEnabled,
       hasCurrentTrack: !!currentVideoTrack,
       currentTrackEnabled: currentVideoTrack?.enabled,
       currentTrackMuted: currentVideoTrack?.muted,
       currentTrackReadyState: currentVideoTrack?.readyState,
-      streamId: stream.id
+      streamId: stream.id,
+      streamVideoTracks: stream.getVideoTracks().length,
+      streamAudioTracks: stream.getAudioTracks().length
     });
 
     if (newVideoEnabled) {
@@ -862,16 +864,37 @@ export function RoomPage() {
           
           // Add new video track to the stream
           stream.addTrack(newVideoTrack);
-          console.log('[toggleVideo] Added new video track to stream', {
+          console.log('[toggleVideo] ✅ Added new video track to stream', {
             newTrackId: newVideoTrack.id,
-            streamVideoTracks: stream.getVideoTracks().length
+            newTrackEnabled: newVideoTrack.enabled,
+            newTrackMuted: newVideoTrack.muted,
+            newTrackReadyState: newVideoTrack.readyState,
+            streamVideoTracks: stream.getVideoTracks().length,
+            streamAudioTracks: stream.getAudioTracks().length
           });
           
           // Update refs
           localStreamRef.current = stream;
           
-          console.log('[toggleVideo] Updating P2P manager with fresh track');
+          // CRITICAL: Log the stream state before updating P2P manager
+          console.log('[toggleVideo] 📤 About to update P2P manager with stream:', {
+            streamId: stream.id,
+            videoTracks: stream.getVideoTracks().map(t => ({
+              id: t.id,
+              enabled: t.enabled,
+              muted: t.muted,
+              readyState: t.readyState
+            })),
+            audioTracks: stream.getAudioTracks().map(t => ({
+              id: t.id,
+              enabled: t.enabled,
+              muted: t.muted,
+              readyState: t.readyState
+            }))
+          });
+          
           p2pManager.current?.updateLocalStream(stream);
+          console.log('[toggleVideo] ✅ P2P manager updateLocalStream called');
           
           // Force re-render by toggling stream state
           setLocalStream(null);
@@ -910,7 +933,7 @@ export function RoomPage() {
       
       // CRITICAL FIX: Send media-state FIRST before stopping the track
       // This ensures the remote peer knows video is disabled before the track stops
-      console.log('[toggleVideo] Sending media-state with videoEnabled=false');
+      console.log('[toggleVideo] 📤 Sending media-state with videoEnabled=false');
       p2pManager.current?.broadcast({
         type: 'media-state',
         data: { audioEnabled, videoEnabled: false },
@@ -919,15 +942,29 @@ export function RoomPage() {
       } as P2PMessage);
       
       if (currentVideoTrack) {
-        console.log('[toggleVideo] Disabling video track (NOT removing from stream)', { trackId: currentVideoTrack.id });
+        console.log('[toggleVideo] 🔴 Disabling video track', {
+          trackId: currentVideoTrack.id,
+          currentEnabled: currentVideoTrack.enabled,
+          currentMuted: currentVideoTrack.muted,
+          currentReadyState: currentVideoTrack.readyState
+        });
+        
         currentVideoTrack.enabled = false;
+        console.log('[toggleVideo] Track enabled set to false');
+        
         // Stop the track to release the camera, but DON'T remove it from the stream
         // This keeps the WebRTC sender in place for replaceTrack() later
         currentVideoTrack.stop();
-        console.log('[toggleVideo] Video track stopped but kept in stream for sender preservation');
+        console.log('[toggleVideo] 🛑 Video track stopped', {
+          trackId: currentVideoTrack.id,
+          readyStateAfterStop: currentVideoTrack.readyState,
+          streamVideoTracksAfterStop: stream.getVideoTracks().length,
+          streamVideoTrackIds: stream.getVideoTracks().map(t => t.id)
+        });
       }
       
       setVideoEnabled(false);
+      console.log('[toggleVideo] ✅ Video disabled, state updated');
       
       // DON'T call updateLocalStream here - the track is stopped but still in the stream
       // This preserves the WebRTC sender for when we re-enable

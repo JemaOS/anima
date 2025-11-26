@@ -2321,7 +2321,7 @@ export class P2PManager {
     const senders = pc.getSenders();
     const transceivers = pc.getTransceivers();
 
-    log('STREAM', '🔄 Updating tracks for peer', {
+    log('STREAM', '🔄🔄🔄 updateMediaConnectionTracks CALLED 🔄🔄🔄', {
       peerId,
       hasVideo: !!videoTrack,
       hasAudio: !!audioTrack,
@@ -2329,13 +2329,17 @@ export class P2PManager {
       videoTrackEnabled: videoTrack?.enabled,
       videoTrackMuted: videoTrack?.muted,
       videoTrackReadyState: videoTrack?.readyState,
+      connectionState: pc.connectionState,
+      iceConnectionState: pc.iceConnectionState,
+      signalingState: pc.signalingState,
       senderCount: senders.length,
       transceiverCount: transceivers.length,
       senderDetails: senders.map(s => ({
         trackKind: s.track?.kind || 'null',
         trackId: s.track?.id || 'null',
         trackEnabled: s.track?.enabled,
-        trackMuted: s.track?.muted
+        trackMuted: s.track?.muted,
+        trackReadyState: s.track?.readyState || 'null'
       })),
       transceiverDetails: transceivers.map(t => ({
         mid: t.mid,
@@ -2343,6 +2347,7 @@ export class P2PManager {
         currentDirection: t.currentDirection,
         senderTrackKind: t.sender.track?.kind || 'null',
         senderTrackId: t.sender.track?.id || 'null',
+        senderTrackReadyState: t.sender.track?.readyState || 'null',
         receiverTrackKind: t.receiver.track?.kind || 'null'
       }))
     });
@@ -2363,17 +2368,44 @@ export class P2PManager {
       }
     } else {
       // CRITICAL FIX: Use transceivers to find the video sender
-      // When camera is toggled off, the sender's track becomes null
+      // When camera is toggled off, the sender's track becomes null or ended
       // but the transceiver still exists and we can use replaceTrack on it
       if (videoTrack) {
-        // First try to find sender with existing video track
+        log('STREAM', '📹 Looking for video sender to replace track', {
+          peerId,
+          newVideoTrackId: videoTrack.id,
+          newVideoTrackEnabled: videoTrack.enabled,
+          newVideoTrackMuted: videoTrack.muted,
+          newVideoTrackReadyState: videoTrack.readyState
+        });
+        
+        // First try to find sender with existing video track (live or ended)
         let videoSender = senders.find(s => s.track?.kind === 'video');
-        let foundVia = 'existing sender';
+        let foundVia = 'existing sender with video track';
+        
+        // CRITICAL: Also check for sender with ended track
+        if (!videoSender) {
+          // Check if any sender has a track that was video but is now ended
+          const senderWithEndedTrack = senders.find(s =>
+            s.track && s.track.readyState === 'ended' && s.track.kind === 'video'
+          );
+          if (senderWithEndedTrack) {
+            videoSender = senderWithEndedTrack;
+            foundVia = 'sender with ended video track';
+            log('STREAM', '🔍 Found video sender with ENDED track', {
+              peerId,
+              trackId: senderWithEndedTrack.track?.id,
+              trackReadyState: senderWithEndedTrack.track?.readyState
+            });
+          }
+        }
         
         // If not found, look for a transceiver that was used for video
         // CRITICAL: Use receiver.track.kind to identify the video transceiver
         // because the sender.track may be null when camera was toggled off
         if (!videoSender) {
+          log('STREAM', '🔍 No sender with video track found, checking transceivers...', { peerId });
+          
           // First, try to find by receiver track kind (most reliable)
           const videoTransceiver = transceivers.find(t => t.receiver.track?.kind === 'video');
           
@@ -2385,9 +2417,13 @@ export class P2PManager {
               mid: videoTransceiver.mid,
               direction: videoTransceiver.direction,
               currentDirection: videoTransceiver.currentDirection,
-              senderTrackNull: videoTransceiver.sender.track === null
+              senderTrackNull: videoTransceiver.sender.track === null,
+              senderTrackKind: videoTransceiver.sender.track?.kind,
+              senderTrackReadyState: videoTransceiver.sender.track?.readyState
             });
           } else {
+            log('STREAM', '⚠️ No video transceiver found by receiver.track.kind', { peerId });
+            
             // Fallback: look for first transceiver with null sender track that's not audio
             // This is less reliable but may work in some cases
             const audioTransceiver = transceivers.find(t => t.receiver.track?.kind === 'audio');
@@ -2410,50 +2446,87 @@ export class P2PManager {
         }
         
         if (videoSender) {
-          log('STREAM', `📹 Attempting to replace video track (found via: ${foundVia})`, {
+          log('STREAM', `📹📹📹 REPLACING VIDEO TRACK (found via: ${foundVia}) 📹📹📹`, {
             peerId,
             newTrackId: videoTrack.id,
             newTrackEnabled: videoTrack.enabled,
             newTrackMuted: videoTrack.muted,
             newTrackReadyState: videoTrack.readyState,
-            currentSenderTrack: videoSender.track?.id || 'null'
+            currentSenderTrackId: videoSender.track?.id || 'null',
+            currentSenderTrackKind: videoSender.track?.kind || 'null',
+            currentSenderTrackReadyState: videoSender.track?.readyState || 'null'
           });
           
           videoSender.replaceTrack(videoTrack).then(() => {
-            log('STREAM', '✅ Replaced video track successfully', {
+            log('STREAM', '✅✅✅ REPLACED VIDEO TRACK SUCCESSFULLY ✅✅✅', {
               peerId,
               newTrackId: videoTrack.id,
               newTrackEnabled: videoTrack.enabled,
-              newTrackMuted: videoTrack.muted
+              newTrackMuted: videoTrack.muted,
+              newTrackReadyState: videoTrack.readyState
             });
             
             // CRITICAL: Verify the track was actually set
             setTimeout(() => {
-              log('STREAM', '📊 Video sender state after replaceTrack', {
+              const verifyTrack = videoSender!.track;
+              log('STREAM', '📊 Video sender state 100ms after replaceTrack', {
                 peerId,
-                senderTrackId: videoSender!.track?.id,
-                senderTrackEnabled: videoSender!.track?.enabled,
-                senderTrackMuted: videoSender!.track?.muted,
-                senderTrackReadyState: videoSender!.track?.readyState
+                senderTrackId: verifyTrack?.id || 'null',
+                senderTrackKind: verifyTrack?.kind || 'null',
+                senderTrackEnabled: verifyTrack?.enabled,
+                senderTrackMuted: verifyTrack?.muted,
+                senderTrackReadyState: verifyTrack?.readyState || 'null',
+                trackMatchesNewTrack: verifyTrack?.id === videoTrack.id
               });
+              
+              if (!verifyTrack || verifyTrack.id !== videoTrack.id) {
+                log('STREAM', '❌❌❌ TRACK REPLACEMENT VERIFICATION FAILED! ❌❌❌', {
+                  peerId,
+                  expectedTrackId: videoTrack.id,
+                  actualTrackId: verifyTrack?.id || 'null'
+                });
+              }
             }, 100);
+            
+            // Also check after 500ms
+            setTimeout(() => {
+              const verifyTrack = videoSender!.track;
+              log('STREAM', '📊 Video sender state 500ms after replaceTrack', {
+                peerId,
+                senderTrackId: verifyTrack?.id || 'null',
+                senderTrackEnabled: verifyTrack?.enabled,
+                senderTrackMuted: verifyTrack?.muted,
+                senderTrackReadyState: verifyTrack?.readyState || 'null'
+              });
+            }, 500);
           }).catch(error => {
-            log('STREAM', '❌ Error replacing video track', { peerId, error: (error as Error).message });
+            log('STREAM', '❌❌❌ ERROR REPLACING VIDEO TRACK ❌❌❌', {
+              peerId,
+              error: (error as Error).message,
+              errorName: (error as Error).name,
+              errorStack: (error as Error).stack
+            });
             // Try adding instead
             try {
               pc.addTrack(videoTrack, stream);
-              log('STREAM', '✅ Added video track as fallback', { peerId });
+              log('STREAM', '✅ Added video track as fallback after replaceTrack failed', { peerId });
             } catch (e) {
               log('STREAM', '❌ Error adding video track as fallback', { peerId, error: (e as Error).message });
             }
           });
         } else {
-          log('STREAM', '⚠️ No video sender found, adding new track', { peerId });
+          log('STREAM', '⚠️⚠️⚠️ NO VIDEO SENDER FOUND! ⚠️⚠️⚠️', {
+            peerId,
+            senderCount: senders.length,
+            transceiverCount: transceivers.length,
+            allSenderKinds: senders.map(s => s.track?.kind || 'null'),
+            allTransceiverReceiverKinds: transceivers.map(t => t.receiver.track?.kind || 'null')
+          });
           try {
             pc.addTrack(videoTrack, stream);
-            log('STREAM', 'Added new video track (no existing sender or transceiver)', { peerId });
+            log('STREAM', '✅ Added new video track (no existing sender or transceiver)', { peerId });
           } catch (error) {
-            log('STREAM', 'Error adding video track', { peerId, error: (error as Error).message });
+            log('STREAM', '❌ Error adding video track', { peerId, error: (error as Error).message });
           }
         }
       } else {
