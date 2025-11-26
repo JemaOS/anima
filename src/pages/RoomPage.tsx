@@ -896,21 +896,22 @@ export function RoomPage() {
           p2pManager.current?.updateLocalStream(stream);
           console.log('[toggleVideo] ✅ P2P manager updateLocalStream called');
           
-          // Force re-render by toggling stream state
-          setLocalStream(null);
-          requestAnimationFrame(() => {
-            setLocalStream(stream);
-            console.log('[toggleVideo] Local stream state updated');
-          });
+          // CRITICAL FIX: Set videoEnabled FIRST, then update stream state
+          // This ensures the UI shows video enabled before the stream is updated
+          setVideoEnabled(true);
+          console.log('[toggleVideo] ✅ videoEnabled set to true');
           
           // CRITICAL FIX: Wait a bit for the track to be transmitted before sending media-state
           // This ensures the remote peer receives the track before updating videoEnabled
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise(resolve => setTimeout(resolve, 300));
+          
+          // Now update the local stream state - use a single update, not null then stream
+          // The null/stream toggle was causing a flash of "no stream" state
+          setLocalStream(stream);
+          console.log('[toggleVideo] ✅ Local stream state updated');
           
           console.log('[toggleVideo] Sending media-state with videoEnabled=true');
         }
-        
-        setVideoEnabled(true);
         
         // Send media-state AFTER the track is ready and transmitted
         p2pManager.current?.broadcast({
