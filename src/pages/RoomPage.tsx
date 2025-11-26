@@ -759,11 +759,19 @@ export function RoomPage() {
     const currentVideoTrack = stream.getVideoTracks()[0];
     const newVideoEnabled = !videoEnabled;
 
+    console.log('[toggleVideo] Starting toggle', {
+      currentVideoEnabled: videoEnabled,
+      newVideoEnabled,
+      hasCurrentTrack: !!currentVideoTrack,
+      streamId: stream.id
+    });
+
     if (newVideoEnabled) {
       // Re-acquire camera when turning video back on
       try {
         // Stop the old track completely first to release the camera
         if (currentVideoTrack) {
+          console.log('[toggleVideo] Stopping old video track', { trackId: currentVideoTrack.id });
           currentVideoTrack.stop();
           stream.removeTrack(currentVideoTrack);
         }
@@ -773,29 +781,60 @@ export function RoomPage() {
           await new Promise(resolve => setTimeout(resolve, 300));
         }
         
+        console.log('[toggleVideo] Requesting new camera stream...');
         const newStream = await navigator.mediaDevices.getUserMedia({
           video: getVideoConstraints(facingMode),
         });
         
         const newVideoTrack = newStream.getVideoTracks()[0];
         if (newVideoTrack) {
+          console.log('[toggleVideo] Got new video track', {
+            trackId: newVideoTrack.id,
+            enabled: newVideoTrack.enabled,
+            muted: newVideoTrack.muted,
+            readyState: newVideoTrack.readyState
+          });
+          
           // Add new video track
           stream.addTrack(newVideoTrack);
           
-          // Update refs and state
+          // Update refs
           localStreamRef.current = stream;
           
-          // Update P2P manager with new stream
+          console.log('[toggleVideo] Updating P2P manager with stream', {
+            streamId: stream.id,
+            videoTracks: stream.getVideoTracks().length,
+            audioTracks: stream.getAudioTracks().length
+          });
+          
+          // Update P2P manager with new stream - CRITICAL for remote peers
           p2pManager.current?.updateLocalStream(stream);
           
-          // Force state update to trigger re-render
-          setLocalStream(null);
-          setTimeout(() => setLocalStream(stream), 50);
+          // CRITICAL FIX: Create a new stream reference to force React re-render
+          // React doesn't detect changes to the same MediaStream object
+          // We need to clone the stream or create a new reference
+          const clonedStream = stream.clone();
+          
+          // Stop the cloned tracks and use the original stream's tracks
+          clonedStream.getTracks().forEach(t => t.stop());
+          
+          // Actually, let's just force a re-render by setting state twice
+          setLocalStream(prevStream => {
+            // Return a "new" reference by spreading into a new object wrapper
+            // But MediaStream can't be spread, so we use a different approach
+            return null;
+          });
+          
+          // Use requestAnimationFrame for smoother update
+          requestAnimationFrame(() => {
+            setLocalStream(stream);
+            console.log('[toggleVideo] Local stream state updated');
+          });
         }
         
         setVideoEnabled(true);
       } catch (error) {
-        console.error('Error re-acquiring camera:', error);
+        console.error('[toggleVideo] Error re-acquiring camera:', error);
         setMediaError('Erreur lors de la réactivation de la caméra');
         setTimeout(() => setMediaError(null), 3000);
         return;
@@ -803,10 +842,23 @@ export function RoomPage() {
     } else {
       // Stop the track completely when turning off
       if (currentVideoTrack) {
+        console.log('[toggleVideo] Disabling video - stopping track', { trackId: currentVideoTrack.id });
         currentVideoTrack.stop();
         stream.removeTrack(currentVideoTrack);
       }
+      
+      // CRITICAL FIX: Also update P2P manager when disabling video
+      // This ensures remote peers know the video track is gone
+      console.log('[toggleVideo] Updating P2P manager after video disable');
+      p2pManager.current?.updateLocalStream(stream);
+      
       setVideoEnabled(false);
+      
+      // Force re-render for local display
+      setLocalStream(null);
+      requestAnimationFrame(() => {
+        setLocalStream(stream);
+      });
     }
 
     p2pManager.current?.broadcast({
