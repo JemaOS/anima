@@ -845,15 +845,27 @@ export function RoomPage() {
             });
           }
           
-          // Stop and remove old track
-          if (currentVideoTrack) {
-            console.log('[toggleVideo] Stopping old track', { oldTrackId: currentVideoTrack.id });
-            stream.removeTrack(currentVideoTrack);
-            currentVideoTrack.stop();
+          // CRITICAL FIX: Check if there's an old stopped track in the stream
+          // If so, remove it first, then add the new one
+          const oldVideoTrack = stream.getVideoTracks()[0];
+          if (oldVideoTrack) {
+            console.log('[toggleVideo] Removing old stopped track from stream', {
+              oldTrackId: oldVideoTrack.id,
+              oldTrackReadyState: oldVideoTrack.readyState
+            });
+            stream.removeTrack(oldVideoTrack);
+            // Don't stop it again if already stopped
+            if (oldVideoTrack.readyState === 'live') {
+              oldVideoTrack.stop();
+            }
           }
           
-          // Add new video track
+          // Add new video track to the stream
           stream.addTrack(newVideoTrack);
+          console.log('[toggleVideo] Added new video track to stream', {
+            newTrackId: newVideoTrack.id,
+            streamVideoTracks: stream.getVideoTracks().length
+          });
           
           // Update refs
           localStreamRef.current = stream;
@@ -892,8 +904,9 @@ export function RoomPage() {
         return;
       }
     } else {
-      // Disable video - stop the track completely
-      // We'll get a fresh track when re-enabling
+      // Disable video - CRITICAL FIX: Don't remove the track from the stream!
+      // Just disable it and stop it. This keeps the WebRTC sender in place
+      // so we can use replaceTrack() when re-enabling.
       
       // CRITICAL FIX: Send media-state FIRST before stopping the track
       // This ensures the remote peer knows video is disabled before the track stops
@@ -906,19 +919,18 @@ export function RoomPage() {
       } as P2PMessage);
       
       if (currentVideoTrack) {
-        console.log('[toggleVideo] Stopping video track', { trackId: currentVideoTrack.id });
+        console.log('[toggleVideo] Disabling video track (NOT removing from stream)', { trackId: currentVideoTrack.id });
         currentVideoTrack.enabled = false;
-        // Also stop the track to release the camera
-        // This ensures a clean state when we re-enable
+        // Stop the track to release the camera, but DON'T remove it from the stream
+        // This keeps the WebRTC sender in place for replaceTrack() later
         currentVideoTrack.stop();
-        stream.removeTrack(currentVideoTrack);
-        console.log('[toggleVideo] Video track stopped and removed');
+        console.log('[toggleVideo] Video track stopped but kept in stream for sender preservation');
       }
       
       setVideoEnabled(false);
       
-      // Notify P2P manager about the state change
-      p2pManager.current?.updateLocalStream(stream);
+      // DON'T call updateLocalStream here - the track is stopped but still in the stream
+      // This preserves the WebRTC sender for when we re-enable
     }
   }, [myId, audioEnabled, videoEnabled, facingMode]);
 
