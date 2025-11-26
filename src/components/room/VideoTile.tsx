@@ -43,10 +43,15 @@ export function VideoTile({
   const [isPlaying, setIsPlaying] = useState(false);
   const streamIdRef = useRef<string | null>(null);
 
+  // Track the video track ID to detect when it changes
+  const [currentVideoTrackId, setCurrentVideoTrackId] = useState<string | null>(null);
+  
   // Handle stream binding with track change detection
   useEffect(() => {
     const video = videoRef.current;
     const currentStreamId = participant.stream?.id || null;
+    const videoTrack = participant.stream?.getVideoTracks()[0];
+    const videoTrackId = videoTrack?.id || null;
     
     // Debug logging - use string concatenation for better visibility in console
     const streamInfo = participant.stream ? {
@@ -61,7 +66,7 @@ export function VideoTile({
       videoReadyState: participant.stream.getVideoTracks().map(t => t.readyState),
     } : null;
     
-    console.log(`[VideoTile] ${participant.name} (${isLocal ? 'LOCAL' : 'REMOTE'}): hasStream=${!!participant.stream}, videoEnabled=${participant.videoEnabled}, streamInfo=`, streamInfo);
+    console.log(`[VideoTile] ${participant.name} (${isLocal ? 'LOCAL' : 'REMOTE'}): hasStream=${!!participant.stream}, videoEnabled=${participant.videoEnabled}, videoTrackId=${videoTrackId}, streamInfo=`, streamInfo);
     
     if (!video || !participant.stream) {
       console.log(`[VideoTile] ${participant.name}: Early return - hasVideo=${!!video}, hasStream=${!!participant.stream}`);
@@ -70,6 +75,27 @@ export function VideoTile({
     
     // Store current stream ID for comparison
     streamIdRef.current = currentStreamId;
+    
+    // CRITICAL FIX: Detect video track changes and force re-attachment
+    if (videoTrackId && videoTrackId !== currentVideoTrackId) {
+      console.log(`[VideoTile] ${participant.name}: 🔄 VIDEO TRACK CHANGED!`, {
+        oldTrackId: currentVideoTrackId,
+        newTrackId: videoTrackId,
+        trackEnabled: videoTrack?.enabled,
+        trackMuted: videoTrack?.muted,
+        trackReadyState: videoTrack?.readyState
+      });
+      setCurrentVideoTrackId(videoTrackId);
+      
+      // Force re-attachment of stream to video element
+      video.srcObject = null;
+      setTimeout(() => {
+        if (video && participant.stream) {
+          video.srcObject = participant.stream;
+          video.play().catch(e => console.log(`[VideoTile] ${participant.name}: Play after track change error: ${e.message}`));
+        }
+      }, 50);
+    }
     
     // Log video element state
     console.log(`[VideoTile] ${participant.name}: Attaching stream to video element`, {

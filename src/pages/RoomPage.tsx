@@ -511,6 +511,30 @@ export function RoomPage() {
         
         dispatchParticipants({ type: 'SET_STREAM', payload: { id: peerId, stream } });
         
+        // CRITICAL FIX: Also update videoEnabled based on whether we have a video track
+        // This ensures the UI shows video when a new track is received
+        const hasVideoTrack = stream.getVideoTracks().length > 0;
+        const videoTrack = stream.getVideoTracks()[0];
+        const isVideoEnabled = hasVideoTrack && videoTrack.enabled && videoTrack.readyState === 'live';
+        
+        console.log('[RoomPage] 📹 Updating participant videoEnabled state:', {
+          peerId,
+          hasVideoTrack,
+          isVideoEnabled,
+          trackEnabled: videoTrack?.enabled,
+          trackReadyState: videoTrack?.readyState
+        });
+        
+        if (hasVideoTrack) {
+          dispatchParticipants({
+            type: 'UPDATE_PARTICIPANT',
+            payload: {
+              id: peerId,
+              updates: { videoEnabled: true }
+            }
+          });
+        }
+        
         // Add audio analyser for the new stream
         manager.addAudioAnalyser(peerId, stream);
       });
