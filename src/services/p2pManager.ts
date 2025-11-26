@@ -88,6 +88,9 @@ export class P2PManager {
   private maxReconnectAttempts = 5;
   private localStream: MediaStream | null = null;
   private pendingMediaConnections: Map<string, MediaConnection> = new Map();
+  
+  // Queue for ICE candidates received before remote description is set
+  private pendingIceCandidates: Map<string, RTCIceCandidateInit[]> = new Map();
 
   // Quality monitoring
   private qualityMonitorInterval: ReturnType<typeof setInterval> | null = null;
@@ -1371,7 +1374,7 @@ export class P2PManager {
       }
     };
     
-    // CRITICAL: Monitor signaling state changes
+    // CRITICAL: Monitor signaling state changes and process queued ICE candidates
     pc.onsignalingstatechange = () => {
       log('ICE', '📡 Signaling state changed', {
         peerId,
@@ -1379,6 +1382,12 @@ export class P2PManager {
         localDescriptionType: pc.localDescription?.type,
         remoteDescriptionType: pc.remoteDescription?.type
       });
+      
+      // CRITICAL FIX: When signaling state becomes stable and we have remote description,
+      // process any queued ICE candidates
+      if (pc.signalingState === 'stable' && pc.remoteDescription) {
+        this.processQueuedIceCandidates(peerId, pc);
+      }
     };
 
     // Monitor connection state (newer API)
@@ -1422,6 +1431,55 @@ export class P2PManager {
         this.attemptReconnect(peerId, this.localStream);
       }
     }
+  }
+
+  /**
+   * Process queued ICE candidates for a peer
+   * Called when remote description is set and signaling state is stable
+   */
+  private processQueuedIceCandidates(peerId: string, pc: RTCPeerConnection): void {
+    const queuedCandidates = this.pendingIceCandidates.get(peerId);
+    if (!queuedCandidates || queuedCandidates.length === 0) {
+      return;
+    }
+    
+    log('ICE', '🔄 Processing queued ICE candidates', {
+      peerId,
+      count: queuedCandidates.length,
+      signalingState: pc.signalingState,
+      hasRemoteDesc: !!pc.remoteDescription
+    });
+    
+    // Process all queued candidates
+    queuedCandidates.forEach((candidateInit, index) => {
+      try {
+        const iceCandidate = new RTCIceCandidate(candidateInit);
+        pc.addIceCandidate(iceCandidate).then(() => {
+          log('ICE', '✅ Queued ICE candidate added successfully', {
+            peerId,
+            index,
+            iceConnectionState: pc.iceConnectionState,
+            connectionState: pc.connectionState
+          });
+        }).catch((err) => {
+          log('ICE', '❌ Failed to add queued ICE candidate', {
+            peerId,
+            index,
+            error: err.message
+          });
+        });
+      } catch (err) {
+        log('ICE', '❌ Error creating queued ICE candidate', {
+          peerId,
+          index,
+          error: (err as Error).message
+        });
+      }
+    });
+    
+    // Clear the queue
+    this.pendingIceCandidates.delete(peerId);
+    log('ICE', '✅ Cleared ICE candidate queue', { peerId });
   }
 
   /**
@@ -2242,6 +2300,8 @@ export class P2PManager {
 
   /**
    * Update tracks on a specific media connection
+   * CRITICAL FIX: Use transceivers to find senders even when track is null
+   * This happens when camera is toggled off (track removed) then back on
    */
   private updateMediaConnectionTracks(mediaConn: MediaConnection, stream: MediaStream, peerId: string): void {
     const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
@@ -2259,12 +2319,20 @@ export class P2PManager {
     const videoTrack = stream.getVideoTracks()[0];
     const audioTrack = stream.getAudioTracks()[0];
     const senders = pc.getSenders();
+    const transceivers = pc.getTransceivers();
 
     log('STREAM', 'Updating tracks for peer', {
       peerId,
       hasVideo: !!videoTrack,
       hasAudio: !!audioTrack,
-      senderCount: senders.length
+      senderCount: senders.length,
+      transceiverCount: transceivers.length,
+      transceiverDetails: transceivers.map(t => ({
+        mid: t.mid,
+        direction: t.direction,
+        senderTrackKind: t.sender.track?.kind || 'null',
+        receiverTrackKind: t.receiver.track?.kind || 'null'
+      }))
     });
 
     // If no senders exist yet, add tracks
@@ -2282,43 +2350,85 @@ export class P2PManager {
         log('STREAM', 'Error adding tracks', { peerId, error: (error as Error).message });
       }
     } else {
-      // Replace existing tracks
+      // CRITICAL FIX: Use transceivers to find the video sender
+      // When camera is toggled off, the sender's track becomes null
+      // but the transceiver still exists and we can use replaceTrack on it
       if (videoTrack) {
-        const videoSender = senders.find(s => s.track?.kind === 'video');
+        // First try to find sender with existing video track
+        let videoSender = senders.find(s => s.track?.kind === 'video');
+        
+        // If not found, look for a transceiver that was used for video
+        // The receiver track kind tells us what type of media this transceiver handles
+        if (!videoSender) {
+          const videoTransceiver = transceivers.find(t =>
+            t.receiver.track?.kind === 'video' ||
+            (t.mid !== null && t.sender.track === null && t.direction !== 'inactive')
+          );
+          if (videoTransceiver) {
+            videoSender = videoTransceiver.sender;
+            log('STREAM', '🔍 Found video sender via transceiver (track was null)', {
+              peerId,
+              mid: videoTransceiver.mid,
+              direction: videoTransceiver.direction
+            });
+          }
+        }
+        
         if (videoSender) {
           videoSender.replaceTrack(videoTrack).then(() => {
-            log('STREAM', 'Replaced video track', { peerId });
+            log('STREAM', '✅ Replaced video track successfully', {
+              peerId,
+              newTrackId: videoTrack.id,
+              newTrackEnabled: videoTrack.enabled,
+              newTrackMuted: videoTrack.muted
+            });
           }).catch(error => {
-            log('STREAM', 'Error replacing video track', { peerId, error: (error as Error).message });
+            log('STREAM', '❌ Error replacing video track', { peerId, error: (error as Error).message });
             // Try adding instead
             try {
               pc.addTrack(videoTrack, stream);
+              log('STREAM', '✅ Added video track as fallback', { peerId });
             } catch (e) {
-              log('STREAM', 'Error adding video track as fallback', { peerId });
+              log('STREAM', '❌ Error adding video track as fallback', { peerId, error: (e as Error).message });
             }
           });
         } else {
           try {
             pc.addTrack(videoTrack, stream);
-            log('STREAM', 'Added new video track (no existing sender)', { peerId });
+            log('STREAM', 'Added new video track (no existing sender or transceiver)', { peerId });
           } catch (error) {
             log('STREAM', 'Error adding video track', { peerId, error: (error as Error).message });
           }
         }
       }
 
+      // Same fix for audio track
       if (audioTrack) {
-        const audioSender = senders.find(s => s.track?.kind === 'audio');
+        let audioSender = senders.find(s => s.track?.kind === 'audio');
+        
+        if (!audioSender) {
+          const audioTransceiver = transceivers.find(t =>
+            t.receiver.track?.kind === 'audio' ||
+            (t.mid !== null && t.sender.track === null && t.direction !== 'inactive')
+          );
+          if (audioTransceiver && !senders.find(s => s.track?.kind === 'audio')) {
+            audioSender = audioTransceiver.sender;
+            log('STREAM', '🔍 Found audio sender via transceiver (track was null)', {
+              peerId,
+              mid: audioTransceiver.mid
+            });
+          }
+        }
+        
         if (audioSender) {
           audioSender.replaceTrack(audioTrack).then(() => {
-            log('STREAM', 'Replaced audio track', { peerId });
+            log('STREAM', '✅ Replaced audio track successfully', { peerId });
           }).catch(error => {
-            log('STREAM', 'Error replacing audio track', { peerId, error: (error as Error).message });
-            // Try adding instead
+            log('STREAM', '❌ Error replacing audio track', { peerId, error: (error as Error).message });
             try {
               pc.addTrack(audioTrack, stream);
             } catch (e) {
-              log('STREAM', 'Error adding audio track as fallback', { peerId });
+              log('STREAM', '❌ Error adding audio track as fallback', { peerId });
             }
           });
         } else {
@@ -2937,42 +3047,62 @@ export class P2PManager {
 
       case 'ice-candidate':
         // CRITICAL FIX: Receive ICE candidate from peer and add it to the peer connection
+        // Queue candidates if remote description is not yet set
         log('ICE', '📥 Received ICE candidate via data channel', {
           peerId: fromPeerId,
           candidate: message.data?.candidate?.substring(0, 50)
         });
+        
+        const candidateInit: RTCIceCandidateInit = {
+          candidate: message.data.candidate,
+          sdpMid: message.data.sdpMid,
+          sdpMLineIndex: message.data.sdpMLineIndex,
+          usernameFragment: message.data.usernameFragment
+        };
         
         // Find the media connection for this peer
         const mediaConnForIce = this.mediaConnections.get(fromPeerId) || this.pendingMediaConnections.get(fromPeerId);
         if (mediaConnForIce) {
           const pcForIce = (mediaConnForIce as any).peerConnection as RTCPeerConnection;
           if (pcForIce && pcForIce.signalingState !== 'closed') {
-            try {
-              const iceCandidate = new RTCIceCandidate({
-                candidate: message.data.candidate,
-                sdpMid: message.data.sdpMid,
-                sdpMLineIndex: message.data.sdpMLineIndex,
-                usernameFragment: message.data.usernameFragment
+            // CRITICAL: Check if remote description is set
+            // If not, queue the candidate for later
+            if (!pcForIce.remoteDescription) {
+              log('ICE', '⏳ Queuing ICE candidate - remote description not yet set', {
+                peerId: fromPeerId,
+                signalingState: pcForIce.signalingState
               });
               
-              pcForIce.addIceCandidate(iceCandidate).then(() => {
-                log('ICE', '✅ ICE candidate added successfully', {
-                  peerId: fromPeerId,
-                  iceConnectionState: pcForIce.iceConnectionState,
-                  connectionState: pcForIce.connectionState
+              // Add to queue
+              if (!this.pendingIceCandidates.has(fromPeerId)) {
+                this.pendingIceCandidates.set(fromPeerId, []);
+              }
+              this.pendingIceCandidates.get(fromPeerId)!.push(candidateInit);
+            } else {
+              // Remote description is set, add candidate immediately
+              try {
+                const iceCandidate = new RTCIceCandidate(candidateInit);
+                
+                pcForIce.addIceCandidate(iceCandidate).then(() => {
+                  log('ICE', '✅ ICE candidate added successfully', {
+                    peerId: fromPeerId,
+                    iceConnectionState: pcForIce.iceConnectionState,
+                    connectionState: pcForIce.connectionState
+                  });
+                }).catch((err) => {
+                  log('ICE', '❌ Failed to add ICE candidate', {
+                    peerId: fromPeerId,
+                    error: err.message,
+                    signalingState: pcForIce.signalingState,
+                    hasRemoteDesc: !!pcForIce.remoteDescription
+                  });
                 });
-              }).catch((err) => {
-                log('ICE', '❌ Failed to add ICE candidate', {
+              } catch (err) {
+                log('ICE', '❌ Error creating ICE candidate', {
                   peerId: fromPeerId,
-                  error: err.message,
-                  signalingState: pcForIce.signalingState
+                  error: (err as Error).message
                 });
-              });
-            } catch (err) {
-              log('ICE', '❌ Error creating ICE candidate', {
-                peerId: fromPeerId,
-                error: (err as Error).message
-              });
+              }
             }
           } else {
             log('ICE', '⚠️ Cannot add ICE candidate - peer connection not ready', {
@@ -2980,13 +3110,23 @@ export class P2PManager {
               hasPc: !!pcForIce,
               signalingState: pcForIce?.signalingState
             });
+            // Queue for later
+            if (!this.pendingIceCandidates.has(fromPeerId)) {
+              this.pendingIceCandidates.set(fromPeerId, []);
+            }
+            this.pendingIceCandidates.get(fromPeerId)!.push(candidateInit);
           }
         } else {
-          log('ICE', '⚠️ Cannot add ICE candidate - no media connection found', {
+          log('ICE', '⏳ Queuing ICE candidate - no media connection yet', {
             peerId: fromPeerId,
             hasMediaConn: this.mediaConnections.has(fromPeerId),
             hasPendingMediaConn: this.pendingMediaConnections.has(fromPeerId)
           });
+          // Queue for later when media connection is established
+          if (!this.pendingIceCandidates.has(fromPeerId)) {
+            this.pendingIceCandidates.set(fromPeerId, []);
+          }
+          this.pendingIceCandidates.get(fromPeerId)!.push(candidateInit);
         }
         break;
 
@@ -3053,6 +3193,9 @@ export class P2PManager {
         // Ignore close errors
       }
     }
+    
+    // Clean up pending ICE candidates
+    this.pendingIceCandidates.delete(peerId);
     
     // Clean up audio analyser
     this.removeAudioAnalyser(peerId);
