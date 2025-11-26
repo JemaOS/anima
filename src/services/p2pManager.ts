@@ -2321,16 +2321,28 @@ export class P2PManager {
     const senders = pc.getSenders();
     const transceivers = pc.getTransceivers();
 
-    log('STREAM', 'Updating tracks for peer', {
+    log('STREAM', '🔄 Updating tracks for peer', {
       peerId,
       hasVideo: !!videoTrack,
       hasAudio: !!audioTrack,
+      videoTrackId: videoTrack?.id,
+      videoTrackEnabled: videoTrack?.enabled,
+      videoTrackMuted: videoTrack?.muted,
+      videoTrackReadyState: videoTrack?.readyState,
       senderCount: senders.length,
       transceiverCount: transceivers.length,
+      senderDetails: senders.map(s => ({
+        trackKind: s.track?.kind || 'null',
+        trackId: s.track?.id || 'null',
+        trackEnabled: s.track?.enabled,
+        trackMuted: s.track?.muted
+      })),
       transceiverDetails: transceivers.map(t => ({
         mid: t.mid,
         direction: t.direction,
+        currentDirection: t.currentDirection,
         senderTrackKind: t.sender.track?.kind || 'null',
+        senderTrackId: t.sender.track?.id || 'null',
         receiverTrackKind: t.receiver.track?.kind || 'null'
       }))
     });
@@ -2356,25 +2368,57 @@ export class P2PManager {
       if (videoTrack) {
         // First try to find sender with existing video track
         let videoSender = senders.find(s => s.track?.kind === 'video');
+        let foundVia = 'existing sender';
         
         // If not found, look for a transceiver that was used for video
-        // The receiver track kind tells us what type of media this transceiver handles
+        // CRITICAL: Use receiver.track.kind to identify the video transceiver
+        // because the sender.track may be null when camera was toggled off
         if (!videoSender) {
-          const videoTransceiver = transceivers.find(t =>
-            t.receiver.track?.kind === 'video' ||
-            (t.mid !== null && t.sender.track === null && t.direction !== 'inactive')
-          );
+          // First, try to find by receiver track kind (most reliable)
+          const videoTransceiver = transceivers.find(t => t.receiver.track?.kind === 'video');
+          
           if (videoTransceiver) {
             videoSender = videoTransceiver.sender;
-            log('STREAM', '🔍 Found video sender via transceiver (track was null)', {
+            foundVia = 'transceiver (receiver.track.kind === video)';
+            log('STREAM', '🔍 Found video sender via transceiver', {
               peerId,
               mid: videoTransceiver.mid,
-              direction: videoTransceiver.direction
+              direction: videoTransceiver.direction,
+              currentDirection: videoTransceiver.currentDirection,
+              senderTrackNull: videoTransceiver.sender.track === null
             });
+          } else {
+            // Fallback: look for first transceiver with null sender track that's not audio
+            // This is less reliable but may work in some cases
+            const audioTransceiver = transceivers.find(t => t.receiver.track?.kind === 'audio');
+            const nullTrackTransceiver = transceivers.find(t =>
+              t.sender.track === null &&
+              t.mid !== null &&
+              t.direction !== 'inactive' &&
+              t !== audioTransceiver
+            );
+            if (nullTrackTransceiver) {
+              videoSender = nullTrackTransceiver.sender;
+              foundVia = 'transceiver (null track, not audio)';
+              log('STREAM', '🔍 Found video sender via null track transceiver', {
+                peerId,
+                mid: nullTrackTransceiver.mid,
+                direction: nullTrackTransceiver.direction
+              });
+            }
           }
         }
         
         if (videoSender) {
+          log('STREAM', `📹 Attempting to replace video track (found via: ${foundVia})`, {
+            peerId,
+            newTrackId: videoTrack.id,
+            newTrackEnabled: videoTrack.enabled,
+            newTrackMuted: videoTrack.muted,
+            newTrackReadyState: videoTrack.readyState,
+            currentSenderTrack: videoSender.track?.id || 'null'
+          });
+          
           videoSender.replaceTrack(videoTrack).then(() => {
             log('STREAM', '✅ Replaced video track successfully', {
               peerId,
@@ -2382,6 +2426,17 @@ export class P2PManager {
               newTrackEnabled: videoTrack.enabled,
               newTrackMuted: videoTrack.muted
             });
+            
+            // CRITICAL: Verify the track was actually set
+            setTimeout(() => {
+              log('STREAM', '📊 Video sender state after replaceTrack', {
+                peerId,
+                senderTrackId: videoSender!.track?.id,
+                senderTrackEnabled: videoSender!.track?.enabled,
+                senderTrackMuted: videoSender!.track?.muted,
+                senderTrackReadyState: videoSender!.track?.readyState
+              });
+            }, 100);
           }).catch(error => {
             log('STREAM', '❌ Error replacing video track', { peerId, error: (error as Error).message });
             // Try adding instead
@@ -2393,6 +2448,7 @@ export class P2PManager {
             }
           });
         } else {
+          log('STREAM', '⚠️ No video sender found, adding new track', { peerId });
           try {
             pc.addTrack(videoTrack, stream);
             log('STREAM', 'Added new video track (no existing sender or transceiver)', { peerId });
@@ -2400,6 +2456,8 @@ export class P2PManager {
             log('STREAM', 'Error adding video track', { peerId, error: (error as Error).message });
           }
         }
+      } else {
+        log('STREAM', '📹 No video track to update (camera may be off)', { peerId });
       }
 
       // Same fix for audio track
@@ -2407,13 +2465,10 @@ export class P2PManager {
         let audioSender = senders.find(s => s.track?.kind === 'audio');
         
         if (!audioSender) {
-          const audioTransceiver = transceivers.find(t =>
-            t.receiver.track?.kind === 'audio' ||
-            (t.mid !== null && t.sender.track === null && t.direction !== 'inactive')
-          );
-          if (audioTransceiver && !senders.find(s => s.track?.kind === 'audio')) {
+          const audioTransceiver = transceivers.find(t => t.receiver.track?.kind === 'audio');
+          if (audioTransceiver) {
             audioSender = audioTransceiver.sender;
-            log('STREAM', '🔍 Found audio sender via transceiver (track was null)', {
+            log('STREAM', '🔍 Found audio sender via transceiver', {
               peerId,
               mid: audioTransceiver.mid
             });

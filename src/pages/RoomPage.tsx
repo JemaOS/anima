@@ -867,9 +867,24 @@ export function RoomPage() {
             setLocalStream(stream);
             console.log('[toggleVideo] Local stream state updated');
           });
+          
+          // CRITICAL FIX: Wait a bit for the track to be transmitted before sending media-state
+          // This ensures the remote peer receives the track before updating videoEnabled
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          console.log('[toggleVideo] Sending media-state with videoEnabled=true');
         }
         
         setVideoEnabled(true);
+        
+        // Send media-state AFTER the track is ready and transmitted
+        p2pManager.current?.broadcast({
+          type: 'media-state',
+          data: { audioEnabled, videoEnabled: true },
+          senderId: myId,
+          timestamp: Date.now(),
+        } as P2PMessage);
+        
       } catch (error) {
         console.error('[toggleVideo] Error re-acquiring camera:', error);
         setMediaError('Erreur lors de la réactivation de la caméra');
@@ -879,6 +894,17 @@ export function RoomPage() {
     } else {
       // Disable video - stop the track completely
       // We'll get a fresh track when re-enabling
+      
+      // CRITICAL FIX: Send media-state FIRST before stopping the track
+      // This ensures the remote peer knows video is disabled before the track stops
+      console.log('[toggleVideo] Sending media-state with videoEnabled=false');
+      p2pManager.current?.broadcast({
+        type: 'media-state',
+        data: { audioEnabled, videoEnabled: false },
+        senderId: myId,
+        timestamp: Date.now(),
+      } as P2PMessage);
+      
       if (currentVideoTrack) {
         console.log('[toggleVideo] Stopping video track', { trackId: currentVideoTrack.id });
         currentVideoTrack.enabled = false;
@@ -894,13 +920,6 @@ export function RoomPage() {
       // Notify P2P manager about the state change
       p2pManager.current?.updateLocalStream(stream);
     }
-
-    p2pManager.current?.broadcast({
-      type: 'media-state',
-      data: { audioEnabled, videoEnabled: newVideoEnabled },
-      senderId: myId,
-      timestamp: Date.now(),
-    } as P2PMessage);
   }, [myId, audioEnabled, videoEnabled, facingMode]);
 
   // Switch camera (front/back) - for mobile devices
