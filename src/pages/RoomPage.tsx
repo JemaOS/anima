@@ -111,7 +111,23 @@ function participantsReducer(
   switch (action.type) {
     case 'ADD_PARTICIPANT': {
       const newState = new Map(state);
-      newState.set(action.payload.id, action.payload.participant);
+      // CRITICAL FIX: Check if there's an existing entry with a stream (from race condition)
+      // If so, preserve the stream when adding the participant info
+      const existing = state.get(action.payload.id);
+      if (existing?.stream) {
+        console.log('[Reducer] ADD_PARTICIPANT: Preserving existing stream from placeholder', {
+          id: action.payload.id,
+          existingName: existing.name,
+          newName: action.payload.participant.name,
+          hasStream: !!existing.stream
+        });
+        newState.set(action.payload.id, {
+          ...action.payload.participant,
+          stream: existing.stream, // Preserve the stream!
+        });
+      } else {
+        newState.set(action.payload.id, action.payload.participant);
+      }
       return newState;
     }
     case 'REMOVE_PARTICIPANT': {
@@ -128,7 +144,22 @@ function participantsReducer(
     }
     case 'SET_STREAM': {
       const existing = state.get(action.payload.id);
-      if (!existing) return state;
+      if (!existing) {
+        // Participant doesn't exist yet - this can happen due to race condition
+        // Store the stream anyway, it will be used when participant is added
+        console.warn('[Reducer] SET_STREAM: Participant not found, creating placeholder', action.payload.id);
+        const newState = new Map(state);
+        newState.set(action.payload.id, {
+          id: action.payload.id,
+          name: 'Connecting...',
+          stream: action.payload.stream,
+          audioEnabled: true,
+          videoEnabled: true,
+          screenSharing: false,
+          handRaised: false,
+        });
+        return newState;
+      }
       // Only update if stream actually changed
       if (existing.stream === action.payload.stream) return state;
       const newState = new Map(state);
@@ -407,13 +438,6 @@ export function RoomPage() {
   useEffect(() => {
     if (!state?.userName) return;
     
-    console.log('[RoomPage] 🚀 Starting initialization', {
-      userName: state.userName,
-      isHost: state.isHost,
-      hostPeerId: state.hostPeerId,
-      roomCode: code
-    });
-    
     // Use a local variable to track if this effect instance should proceed
     let isMounted = true;
     let currentManager: P2PManager | null = null;
@@ -432,18 +456,12 @@ export function RoomPage() {
       }
 
       // 1. Initialize P2PManager FIRST
-      console.log('[RoomPage] 📦 Creating P2PManager');
       const manager = new P2PManager();
       currentManager = manager;
       p2pManager.current = manager;
 
       // 2. Setup ALL callbacks BEFORE any connections
       manager.onPeerConnected((peerId, peerInfo) => {
-        console.log('[RoomPage] 🎉 onPeerConnected callback fired!', {
-          peerId,
-          peerName: peerInfo.name,
-          currentParticipantsCount: participants.size
-        });
         dispatchParticipants({
           type: 'ADD_PARTICIPANT',
           payload: {
@@ -470,59 +488,34 @@ export function RoomPage() {
 
       manager.onStream((peerId, stream) => {
         console.log('[RoomPage] 🎥 Received stream from peer:', peerId, {
+          streamId: stream.id,
           audioTracks: stream.getAudioTracks().length,
           videoTracks: stream.getVideoTracks().length,
-          audioTrackDetails: stream.getAudioTracks().map(t => ({
-            id: t.id,
-            enabled: t.enabled,
-            muted: t.muted,
-            readyState: t.readyState
-          })),
-          videoTrackDetails: stream.getVideoTracks().map(t => ({
-            id: t.id,
-            enabled: t.enabled,
-            muted: t.muted,
-            readyState: t.readyState
-          }))
+          audioTrackStates: stream.getAudioTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
+          videoTrackStates: stream.getVideoTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState }))
+        });
+        
+        // Ensure audio tracks are enabled on the stream BEFORE dispatching
+        stream.getAudioTracks().forEach(track => {
+          console.log('[RoomPage] 🔊 Audio track state before enable:', { id: track.id, enabled: track.enabled, muted: track.muted, readyState: track.readyState });
+          track.enabled = true;
+          console.log('[RoomPage] 🔊 Audio track state after enable:', { id: track.id, enabled: track.enabled, muted: track.muted, readyState: track.readyState });
+        });
+        
+        // Ensure video tracks are enabled on the stream BEFORE dispatching
+        stream.getVideoTracks().forEach(track => {
+          console.log('[RoomPage] 📹 Video track state before enable:', { id: track.id, enabled: track.enabled, muted: track.muted, readyState: track.readyState });
+          track.enabled = true;
+          console.log('[RoomPage] 📹 Video track state after enable:', { id: track.id, enabled: track.enabled, muted: track.muted, readyState: track.readyState });
         });
         
         dispatchParticipants({ type: 'SET_STREAM', payload: { id: peerId, stream } });
         
         // Add audio analyser for the new stream
         manager.addAudioAnalyser(peerId, stream);
-        
-        // Ensure audio tracks are enabled on the stream
-        stream.getAudioTracks().forEach(track => {
-          console.log('[RoomPage] 🔊 Audio track state before enable:', {
-            id: track.id,
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState
-          });
-          track.enabled = true;
-          console.log('[RoomPage] 🔊 Audio track state after enable:', {
-            enabled: track.enabled
-          });
-        });
-        
-        // Ensure video tracks are enabled on the stream
-        stream.getVideoTracks().forEach(track => {
-          console.log('[RoomPage] 📹 Video track state before enable:', {
-            id: track.id,
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState
-          });
-          track.enabled = true;
-          console.log('[RoomPage] 📹 Video track state after enable:', {
-            enabled: track.enabled
-          });
-        });
       });
 
       manager.onConnectionStateChange((peerId, connectionState) => {
-        console.log('[RoomPage] Connection state changed:', peerId, connectionState);
-        
         // Update overall connection status based on peer states
         if (connectionState === ConnectionState.CONNECTED) {
           setConnectionStatus('connected');
@@ -541,7 +534,6 @@ export function RoomPage() {
 
       // ICE state change callback for detailed connection monitoring
       manager.onICEStateChange((peerId, iceState) => {
-        console.log('[RoomPage] ICE state changed:', peerId, iceState);
         setIceStatus(prev => {
           const newMap = new Map(prev);
           newMap.set(peerId, iceState);
@@ -574,7 +566,6 @@ export function RoomPage() {
       });
 
       // 3. Capture media BEFORE peer initialization
-      console.log('[RoomPage] 📹 Capturing local media');
       const capturedStream = await captureLocalMedia(state.audioEnabled, state.videoEnabled);
       
       if (!isMounted) {
@@ -586,26 +577,24 @@ export function RoomPage() {
       currentStream = capturedStream;
       
       if (capturedStream) {
-        console.log('[RoomPage] ✅ Local media captured', {
-          audioTracks: capturedStream.getAudioTracks().length,
-          videoTracks: capturedStream.getVideoTracks().length
-        });
         setLocalStream(capturedStream);
         localStreamRef.current = capturedStream;
         setMediaError(null);
       } else {
-        console.log('[RoomPage] ⚠️ No local media captured');
         setVideoEnabled(false);
         setAudioEnabled(false);
       }
 
       // 4. Initialize peer AFTER media capture
+      // Use random peer IDs for everyone - the URL hash system handles sharing the host's ID
+      // This avoids conflicts when rejoining (deterministic IDs can cause "unavailable-id" errors)
       const peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`;
-      console.log('[RoomPage] 🔑 Generated peer ID', { peerId, isHost: state.isHost });
+      console.log('[RoomPage] 🔌 Using random peer ID', { peerId, isHost: state.isHost });
       
       try {
-        console.log('[RoomPage] 🔌 Initializing peer connection');
+        console.log('[RoomPage] 🔌 Initializing peer...', { peerId, isHost: state.isHost });
         const id = await manager.initialize(peerId, state.isHost);
+        console.log('[RoomPage] ✅ Peer initialized', { requestedId: peerId, actualId: id });
         
         if (!isMounted) {
           // Component unmounted during async operation
@@ -613,44 +602,45 @@ export function RoomPage() {
           return;
         }
         
-        console.log('[RoomPage] ✅ Peer initialized', { id, isHost: state.isHost });
         setMyId(id);
         setConnected(true);
 
         // 5. Update local stream in manager immediately after initialization
+        // This is CRITICAL - the manager needs the stream to answer incoming calls
         if (capturedStream) {
-          console.log('[RoomPage] 📤 Updating local stream in manager', {
+          console.log('[RoomPage] 📹 Updating local stream in manager', {
             audioTracks: capturedStream.getAudioTracks().length,
             videoTracks: capturedStream.getVideoTracks().length,
-            audioEnabled: capturedStream.getAudioTracks().map(t => t.enabled),
-            videoEnabled: capturedStream.getVideoTracks().map(t => t.enabled)
+            isHost: state.isHost
           });
           manager.updateLocalStream(capturedStream);
+        } else {
+          console.log('[RoomPage] ⚠️ No captured stream to update in manager!');
         }
         
         setConnectionStatus('connected');
 
         // 6. Create or join room with proper delay
         if (state.isHost) {
-          console.log('[RoomPage] 👑 Creating room as HOST');
           manager.createRoom(state.userName);
-          // Add hash for sharing
+          // Add hash for sharing - use the actual peer ID returned by initialize
+          // This is important because if the original ID was taken, a modified ID is used
           const newUrl = `${window.location.pathname}${window.location.search}#peer_id=${id}`;
-          console.log('[RoomPage] 🔗 Setting URL hash for sharing', { newUrl, peerId: id });
           window.history.replaceState(null, '', newUrl);
+          console.log('[RoomPage] 🔗 Host URL updated with peer ID', { url: newUrl, peerId: id });
         } else if (state.hostPeerId) {
-          console.log('[RoomPage] 🤝 Joining room as PARTICIPANT', {
-            hostPeerId: state.hostPeerId,
-            myPeerId: id
-          });
           // Small delay to ensure everything is ready
           await new Promise(resolve => setTimeout(resolve, 100));
-          const joinResult = await manager.joinRoom(state.hostPeerId, state.userName, capturedStream);
-          console.log('[RoomPage] 📊 Join room result', { success: joinResult });
-        } else {
-          console.log('[RoomPage] ⚠️ Not host and no hostPeerId provided!', {
-            isHost: state.isHost,
-            hostPeerId: state.hostPeerId
+          console.log('[RoomPage] 🤝 Joining room as participant', {
+            hostPeerId: state.hostPeerId,
+            hasStream: !!capturedStream,
+            streamTracks: capturedStream?.getTracks().length || 0
+          });
+          const joined = await manager.joinRoom(state.hostPeerId, state.userName, capturedStream);
+          console.log('[RoomPage] 🤝 Join room result', {
+            joined,
+            hostPeerId: state.hostPeerId,
+            streamWasProvided: !!capturedStream
           });
         }
 

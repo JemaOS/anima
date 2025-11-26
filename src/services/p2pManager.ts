@@ -8,7 +8,7 @@ export interface PeerInfo {
 }
 
 export interface P2PMessage {
-  type: 'peer-list' | 'peer-joined' | 'peer-left' | 'peer-info' | 'chat-message' | 'media-state' | 'hand-raised' | 'hand-lowered' | 'room-full' | 'stream-ready';
+  type: 'peer-list' | 'peer-joined' | 'peer-left' | 'peer-info' | 'chat-message' | 'media-state' | 'hand-raised' | 'hand-lowered' | 'room-full' | 'stream-ready' | 'ice-candidate';
   data: any;
   senderId: string;
   timestamp: number;
@@ -62,7 +62,7 @@ const CONNECTION_TIMEOUT = 20000;
 // ICE gathering timeout
 const ICE_GATHERING_TIMEOUT = 10000;
 
-// Debug logging helper
+// Debug logging helper - set to true for debugging
 const DEBUG = true;
 const log = (category: string, message: string, data?: any) => {
   if (DEBUG) {
@@ -122,9 +122,17 @@ export class P2PManager {
    * Initialiser le peer avec PeerJS
    * Uses multiple reliable TURN servers for better connectivity
    */
-  async initialize(peerId: string, isHost: boolean): Promise<string> {
+  async initialize(peerId: string, isHost: boolean, retryCount: number = 0): Promise<string> {
     this.isHost = isHost;
-    log('INIT', `Initializing peer as ${isHost ? 'HOST' : 'PARTICIPANT'}`, { peerId });
+    
+    // If retrying due to unavailable-id, add a suffix to make the ID unique
+    const actualPeerId = retryCount > 0 ? `${peerId}-${Date.now().toString(36)}` : peerId;
+    
+    log('INIT', `Initializing peer as ${isHost ? 'HOST' : 'PARTICIPANT'}`, {
+      requestedPeerId: peerId,
+      actualPeerId,
+      retryCount
+    });
 
     return new Promise((resolve, reject) => {
       // Timeout for peer initialization
@@ -133,19 +141,17 @@ export class P2PManager {
         reject(new Error('Peer initialization timeout'));
       }, 15000);
 
-      this.peer = new Peer(peerId, {
-        debug: DEBUG ? 2 : 0, // Enable PeerJS debug logging
+      // Use standard ICE configuration with STUN and TURN servers
+      // iceTransportPolicy: 'all' allows both direct and relay connections
+      this.peer = new Peer(actualPeerId, {
+        debug: DEBUG ? 3 : 0, // Enable maximum PeerJS debug logging
         config: {
           iceServers: [
-            // Primary STUN servers (Google - highly reliable)
+            // Google STUN servers (free, reliable)
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
             { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' },
-            // Twilio STUN (backup)
-            { urls: 'stun:global.stun.twilio.com:3478' },
-            // Metered.ca TURN servers (free tier - more reliable than openrelay)
+            // Metered.ca TURN servers (free tier)
             {
               urls: 'turn:a.relay.metered.ca:80',
               username: 'e8dd65b92c62d5e98c3d0104',
@@ -166,7 +172,7 @@ export class P2PManager {
               username: 'e8dd65b92c62d5e98c3d0104',
               credential: 'uWdWNmkhvyqTEj3B'
             },
-            // OpenRelay TURN servers (backup)
+            // OpenRelay TURN servers (another free option)
             {
               urls: 'turn:openrelay.metered.ca:80',
               username: 'openrelayproject',
@@ -183,7 +189,9 @@ export class P2PManager {
               credential: 'openrelayproject'
             }
           ],
-          iceTransportPolicy: 'all', // Use both STUN and TURN
+          // Use 'all' to allow both direct (host/srflx) and relay connections
+          // This is more reliable than 'relay' only
+          iceTransportPolicy: 'all',
           iceCandidatePoolSize: 10, // Pre-gather ICE candidates
           bundlePolicy: 'max-bundle',
           rtcpMuxPolicy: 'require'
@@ -199,12 +207,30 @@ export class P2PManager {
 
       this.peer.on('error', (error) => {
         clearTimeout(initTimeout);
-        log('ERROR', 'Peer error', { error: error.type, message: (error as any).message });
+        log('ERROR', 'Peer error', { error: (error as any).type, message: (error as any).message });
         
         // Handle specific error types
         if ((error as any).type === 'unavailable-id') {
           // ID is taken, try with a modified ID
-          log('ERROR', 'Peer ID unavailable, this may indicate the peer is already connected');
+          log('ERROR', 'Peer ID unavailable, retrying with modified ID', { retryCount });
+          
+          // Clean up current peer
+          if (this.peer) {
+            this.peer.destroy();
+            this.peer = null;
+          }
+          
+          // Retry with a modified ID (max 3 retries)
+          if (retryCount < 3) {
+            setTimeout(() => {
+              this.initialize(peerId, isHost, retryCount + 1)
+                .then(resolve)
+                .catch(reject);
+            }, 500 * (retryCount + 1)); // Exponential backoff
+            return; // Don't reject yet, we're retrying
+          } else {
+            log('ERROR', 'Max retries reached for unavailable-id');
+          }
         } else if ((error as any).type === 'network') {
           log('ERROR', 'Network error - check internet connection');
         } else if ((error as any).type === 'server-error') {
@@ -260,13 +286,49 @@ export class P2PManager {
       peerState: this.peer?.open ? 'open' : 'not open'
     });
 
-    // Store local stream for later use
+    // Store local stream for later use - CRITICAL for media connections
     if (localStream) {
       this.localStream = localStream;
-      log('JOIN', '📹 Local stream stored', {
-        audioTracks: localStream.getAudioTracks().length,
-        videoTracks: localStream.getVideoTracks().length
+      
+      // CRITICAL: Log detailed track info including muted state
+      const audioTracks = localStream.getAudioTracks();
+      const videoTracks = localStream.getVideoTracks();
+      
+      log('JOIN', '📹 Local stream stored in P2PManager', {
+        audioTracks: audioTracks.length,
+        videoTracks: videoTracks.length,
+        audioTrackStates: audioTracks.map(t => ({
+          id: t.id,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState,
+          label: t.label
+        })),
+        videoTrackStates: videoTracks.map(t => ({
+          id: t.id,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState,
+          label: t.label
+        }))
       });
+      
+      // DIAGNOSTIC: Warn if no video track
+      if (videoTracks.length === 0) {
+        log('JOIN', '⚠️ WARNING: Joining room WITHOUT video track in local stream!');
+      }
+      
+      // CRITICAL: Check if video track is already muted (no data flowing)
+      const videoTrack = videoTracks[0];
+      if (videoTrack && videoTrack.muted) {
+        log('JOIN', '⚠️ WARNING: Video track is ALREADY MUTED when joining!', {
+          trackId: videoTrack.id,
+          enabled: videoTrack.enabled,
+          readyState: videoTrack.readyState
+        });
+      }
+    } else {
+      log('JOIN', '⚠️ WARNING: Joining room WITHOUT any local stream!');
     }
 
     // Retry logic for connection
@@ -432,8 +494,20 @@ export class P2PManager {
         this.setConnectionState(peerId, ConnectionState.CONNECTED);
         log('CONN', 'Data connection established', { peerId });
         
-        // Now initiate media connection
-        this.initiateMediaConnection(peerId, localStream);
+        // CRITICAL FIX: Only the HOST should initiate media calls
+        // Participants should wait for the host to call them
+        // This prevents both sides from calling each other simultaneously
+        // which causes ICE negotiation to fail
+        if (this.isHost) {
+          log('CONN', '⏳ HOST: Waiting 1s before initiating media connection...', { peerId });
+          setTimeout(() => {
+            log('CONN', '📞 HOST: Now initiating media connection after delay', { peerId });
+            this.initiateMediaConnection(peerId, localStream);
+          }, 1000);
+        } else {
+          log('CONN', '⏸️ PARTICIPANT: Waiting for host to initiate media call (not calling)', { peerId });
+          // Participant does NOT initiate media call - waits for host to call
+        }
         
         resolve();
       });
@@ -460,15 +534,16 @@ export class P2PManager {
 
   /**
    * Initiate media connection to a peer with proper ICE handling
+   * CRITICAL: Always get a fresh video track to ensure data is flowing
    */
-  private initiateMediaConnection(peerId: string, localStream: MediaStream | null): void {
+  private async initiateMediaConnection(peerId: string, localStream: MediaStream | null): Promise<void> {
     if (!this.peer) {
       log('MEDIA', '❌ Cannot initiate media - no peer instance');
       return;
     }
 
     // Use provided stream or stored local stream
-    const streamToUse = localStream || this.localStream;
+    let streamToUse = localStream || this.localStream;
     
     // If no stream available, create a placeholder and notify when ready
     if (!streamToUse || streamToUse.getTracks().length === 0) {
@@ -495,10 +570,381 @@ export class P2PManager {
       audioTrackIds: streamToUse.getAudioTracks().map(t => t.id),
       videoTrackIds: streamToUse.getVideoTracks().map(t => t.id),
       audioEnabled: streamToUse.getAudioTracks().map(t => t.enabled),
-      videoEnabled: streamToUse.getVideoTracks().map(t => t.enabled)
+      videoEnabled: streamToUse.getVideoTracks().map(t => t.enabled),
+      audioMuted: streamToUse.getAudioTracks().map(t => t.muted),
+      videoMuted: streamToUse.getVideoTracks().map(t => t.muted),
+      audioReadyState: streamToUse.getAudioTracks().map(t => t.readyState),
+      videoReadyState: streamToUse.getVideoTracks().map(t => t.readyState)
     });
 
+    // CRITICAL FIX: ALWAYS get a fresh video track before initiating a call
+    // This ensures the track is actively capturing and not in a stale state
+    let videoTrack = streamToUse.getVideoTracks()[0];
+    const audioTrack = streamToUse.getAudioTracks()[0];
+    
+    // Always try to get a fresh video track for outgoing calls
+    try {
+      log('MEDIA', '🔄 Getting fresh video track for call...', { peerId });
+      const freshStream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: 'user'
+        }
+      });
+      
+      const freshVideoTrack = freshStream.getVideoTracks()[0];
+      if (freshVideoTrack && freshVideoTrack.readyState === 'live') {
+        log('MEDIA', '✅ Got fresh video track for call!', {
+          peerId,
+          newTrackId: freshVideoTrack.id,
+          muted: freshVideoTrack.muted,
+          enabled: freshVideoTrack.enabled,
+          readyState: freshVideoTrack.readyState
+        });
+        
+        // Replace the old track in the stream
+        const oldTrack = streamToUse.getVideoTracks()[0];
+        if (oldTrack) {
+          streamToUse.removeTrack(oldTrack);
+          oldTrack.stop();
+        }
+        streamToUse.addTrack(freshVideoTrack);
+        videoTrack = freshVideoTrack;
+        
+        // Update local stream reference
+        this.localStream = streamToUse;
+        
+        // CRITICAL FIX: If the fresh track is muted, wait for it to unmute
+        // This happens on mobile when the camera needs time to "warm up"
+        if (freshVideoTrack.muted) {
+          log('MEDIA', '⏳ Fresh video track is muted, waiting for unmute...', { peerId });
+          
+          // Wait for the track to unmute (max 3 seconds)
+          await new Promise<void>((resolve) => {
+            let resolved = false;
+            
+            const onUnmute = () => {
+              if (!resolved) {
+                resolved = true;
+                freshVideoTrack.removeEventListener('unmute', onUnmute);
+                log('MEDIA', '✅ Video track unmuted, proceeding with call', {
+                  peerId,
+                  muted: freshVideoTrack.muted
+                });
+                resolve();
+              }
+            };
+            
+            freshVideoTrack.addEventListener('unmute', onUnmute);
+            
+            // Also check immediately in case it already unmuted
+            if (!freshVideoTrack.muted) {
+              onUnmute();
+            }
+            
+            // Timeout after 3 seconds
+            setTimeout(() => {
+              if (!resolved) {
+                resolved = true;
+                freshVideoTrack.removeEventListener('unmute', onUnmute);
+                log('MEDIA', '⚠️ Timeout waiting for video track to unmute, proceeding anyway', {
+                  peerId,
+                  muted: freshVideoTrack.muted
+                });
+                resolve();
+              }
+            }, 3000);
+          });
+        }
+      } else {
+        log('MEDIA', '⚠️ Fresh video track is not live!', {
+          peerId,
+          muted: freshVideoTrack?.muted,
+          readyState: freshVideoTrack?.readyState
+        });
+        // Stop the fresh track since we can't use it
+        freshVideoTrack?.stop();
+      }
+    } catch (err) {
+      log('MEDIA', '⚠️ Could not get fresh video track, using existing', {
+        peerId,
+        error: (err as Error).message
+      });
+    }
+    
+    // Verify the video track is in good state
+    if (videoTrack && videoTrack.readyState !== 'live') {
+      log('MEDIA', '⚠️ WARNING: Video track is not live!', {
+        peerId,
+        readyState: videoTrack.readyState,
+        enabled: videoTrack.enabled,
+        muted: videoTrack.muted
+      });
+    }
+    
+    // DIAGNOSTIC: Log final track state before call
+    log('MEDIA', '📊 Final track state before call:', {
+      peerId,
+      videoTrackId: videoTrack?.id,
+      videoMuted: videoTrack?.muted,
+      videoEnabled: videoTrack?.enabled,
+      videoReadyState: videoTrack?.readyState,
+      audioTrackId: audioTrack?.id,
+      audioMuted: audioTrack?.muted,
+      audioEnabled: audioTrack?.enabled,
+      audioReadyState: audioTrack?.readyState
+    });
+    
+    if (audioTrack && audioTrack.readyState !== 'live') {
+      log('MEDIA', '⚠️ WARNING: Audio track is not live!', {
+        peerId,
+        readyState: audioTrack.readyState,
+        enabled: audioTrack.enabled,
+        muted: audioTrack.muted
+      });
+    }
+
+    // CRITICAL DIAGNOSTIC: Log the stream we're about to send
+    log('MEDIA', '🚀 ABOUT TO CALL peer.call() with stream:', {
+      peerId,
+      streamId: streamToUse.id,
+      streamActive: streamToUse.active,
+      totalTracks: streamToUse.getTracks().length,
+      audioTracks: streamToUse.getAudioTracks().map(t => ({
+        id: t.id,
+        kind: t.kind,
+        enabled: t.enabled,
+        muted: t.muted,
+        readyState: t.readyState,
+        label: t.label,
+        contentHint: t.contentHint
+      })),
+      videoTracks: streamToUse.getVideoTracks().map(t => ({
+        id: t.id,
+        kind: t.kind,
+        enabled: t.enabled,
+        muted: t.muted,
+        readyState: t.readyState,
+        label: t.label,
+        contentHint: t.contentHint,
+        // Try to get settings if available
+        settings: typeof t.getSettings === 'function' ? t.getSettings() : 'N/A'
+      }))
+    });
+    
     const mediaConn = this.peer.call(peerId, streamToUse);
+    
+    // CRITICAL: Verify the call was created
+    if (!mediaConn) {
+      log('MEDIA', '❌ peer.call() returned null/undefined!', { peerId });
+      return;
+    }
+    
+    log('MEDIA', '✅ peer.call() returned MediaConnection', {
+      peerId,
+      mediaConnType: typeof mediaConn,
+      hasOpen: 'open' in mediaConn,
+      hasMetadata: !!mediaConn.metadata
+    });
+    
+    // Log the peer connection state immediately after call
+    const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
+    if (pc) {
+      log('MEDIA', '📊 Peer connection state IMMEDIATELY after call', {
+        peerId,
+        connectionState: pc.connectionState,
+        iceConnectionState: pc.iceConnectionState,
+        signalingState: pc.signalingState,
+        senders: pc.getSenders().map(s => ({
+          trackKind: s.track?.kind,
+          trackId: s.track?.id,
+          trackEnabled: s.track?.enabled,
+          trackMuted: s.track?.muted,
+          trackReadyState: s.track?.readyState,
+          trackLabel: s.track?.label
+        })),
+        transceivers: pc.getTransceivers().map(t => ({
+          mid: t.mid,
+          direction: t.direction,
+          currentDirection: t.currentDirection,
+          senderTrackKind: t.sender.track?.kind,
+          senderTrackEnabled: t.sender.track?.enabled,
+          receiverTrackKind: t.receiver.track?.kind
+        }))
+      });
+      
+      // Also log after a delay to see if state changes
+      setTimeout(() => {
+        log('MEDIA', '📊 Peer connection state 500ms after call', {
+          peerId,
+          connectionState: pc.connectionState,
+          iceConnectionState: pc.iceConnectionState,
+          signalingState: pc.signalingState,
+          senders: pc.getSenders().map(s => ({
+            trackKind: s.track?.kind,
+            trackId: s.track?.id,
+            trackEnabled: s.track?.enabled,
+            trackMuted: s.track?.muted,
+            trackReadyState: s.track?.readyState
+          })),
+          transceivers: pc.getTransceivers().map(t => ({
+            mid: t.mid,
+            direction: t.direction,
+            currentDirection: t.currentDirection
+          }))
+        });
+        
+        // CRITICAL: Check if video sender has a track
+        const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (!videoSender) {
+          log('MEDIA', '❌ NO VIDEO SENDER FOUND 500ms after call!', { peerId });
+        } else if (!videoSender.track) {
+          log('MEDIA', '❌ VIDEO SENDER HAS NO TRACK 500ms after call!', { peerId });
+        } else {
+          log('MEDIA', '✅ Video sender has track', {
+            peerId,
+            trackId: videoSender.track.id,
+            trackMuted: videoSender.track.muted,
+            trackEnabled: videoSender.track.enabled,
+            trackReadyState: videoSender.track.readyState
+          });
+        }
+      }, 500);
+      
+      // Log after 2 seconds to see final state
+      setTimeout(() => {
+        log('MEDIA', '📊 Peer connection state 2s after call', {
+          peerId,
+          connectionState: pc.connectionState,
+          iceConnectionState: pc.iceConnectionState,
+          signalingState: pc.signalingState,
+          senders: pc.getSenders().map(s => ({
+            trackKind: s.track?.kind,
+            trackEnabled: s.track?.enabled,
+            trackReadyState: s.track?.readyState
+          })),
+          receivers: pc.getReceivers().map(r => ({
+            trackKind: r.track?.kind,
+            trackEnabled: r.track?.enabled,
+            trackMuted: r.track?.muted,
+            trackReadyState: r.track?.readyState
+          }))
+        });
+        
+        // CRITICAL FIX: If ICE connection is still "new" after 2 seconds,
+        // the signaling may have failed. Try to force renegotiation.
+        if (pc.iceConnectionState === 'new' && pc.connectionState === 'new') {
+          log('MEDIA', '⚠️ ICE connection stuck at "new" after 2s - signaling may have failed!', {
+            peerId,
+            signalingState: pc.signalingState,
+            localDescription: pc.localDescription ? {
+              type: pc.localDescription.type,
+              sdpLength: pc.localDescription.sdp?.length
+            } : null,
+            remoteDescription: pc.remoteDescription ? {
+              type: pc.remoteDescription.type,
+              sdpLength: pc.remoteDescription.sdp?.length
+            } : null
+          });
+          
+          // Check if we have local and remote descriptions
+          if (!pc.localDescription || !pc.remoteDescription) {
+            log('MEDIA', '❌ Missing SDP descriptions - PeerJS signaling failed!', {
+              peerId,
+              hasLocalDesc: !!pc.localDescription,
+              hasRemoteDesc: !!pc.remoteDescription
+            });
+          }
+        }
+      }, 2000);
+      
+      // Check again after 5 seconds - if still stuck, try to restart the call
+      setTimeout(async () => {
+        if (pc.iceConnectionState === 'new' && pc.connectionState === 'new') {
+          log('MEDIA', '🔄 ICE still stuck after 5s - attempting to restart media connection', { peerId });
+          
+          // Close the current media connection
+          try {
+            mediaConn.close();
+          } catch (e) {
+            // Ignore
+          }
+          
+          this.mediaConnections.delete(peerId);
+          this.pendingMediaConnections.delete(peerId);
+          
+          // Wait a bit then try again
+          await new Promise(resolve => setTimeout(resolve, 500));
+          
+          // Re-initiate the media connection
+          if (this.dataConnections.has(peerId) && this.localStream) {
+            log('MEDIA', '🔄 Re-initiating media connection after stuck ICE', { peerId });
+            this.initiateMediaConnection(peerId, this.localStream);
+          }
+        }
+      }, 5000);
+      
+      // CRITICAL: Monitor outbound video stats to see if we're actually sending data
+      // This runs on the SENDER side to diagnose if video data is being transmitted
+      let lastBytesSent = 0;
+      const outboundMonitorInterval = setInterval(() => {
+        if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+          clearInterval(outboundMonitorInterval);
+          return;
+        }
+        
+        const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (videoSender && videoSender.track) {
+          pc.getStats(videoSender.track).then(stats => {
+            stats.forEach(report => {
+              if (report.type === 'outbound-rtp' && report.kind === 'video') {
+                const bytesSent = report.bytesSent || 0;
+                const isSendingData = bytesSent > lastBytesSent;
+                
+                log('MEDIA', '📤 OUTBOUND Video RTP stats (SENDER):', {
+                  peerId,
+                  bytesSent,
+                  bytesDelta: bytesSent - lastBytesSent,
+                  isSendingData,
+                  packetsSent: report.packetsSent,
+                  framesEncoded: report.framesEncoded,
+                  framesSent: report.framesSent,
+                  frameWidth: report.frameWidth,
+                  frameHeight: report.frameHeight,
+                  framesPerSecond: report.framesPerSecond,
+                  qualityLimitationReason: report.qualityLimitationReason,
+                  trackMuted: videoSender.track?.muted,
+                  trackEnabled: videoSender.track?.enabled,
+                  trackReadyState: videoSender.track?.readyState
+                });
+                
+                // If not sending data, log a warning
+                if (!isSendingData && lastBytesSent > 0) {
+                  log('MEDIA', '⚠️ SENDER: No video data being sent!', {
+                    peerId,
+                    bytesSent,
+                    lastBytesSent,
+                    trackMuted: videoSender.track?.muted,
+                    trackEnabled: videoSender.track?.enabled
+                  });
+                }
+                
+                lastBytesSent = bytesSent;
+              }
+            });
+          }).catch(() => {});
+        }
+      }, 5000);
+      
+      // Clean up monitor when media connection closes
+      const originalClose = mediaConn.close.bind(mediaConn);
+      mediaConn.close = () => {
+        clearInterval(outboundMonitorInterval);
+        originalClose();
+      };
+    }
+    
     this.setupMediaConnectionHandlers(mediaConn, peerId);
   }
 
@@ -514,7 +960,6 @@ export class P2PManager {
     if (pc) {
       this.setupICEMonitoring(pc, peerId);
       
-      // DIAGNOSTIC: Log peer connection details
       log('MEDIA', '📊 Peer connection setup for outgoing call', {
         peerId,
         connectionState: pc.connectionState,
@@ -522,9 +967,63 @@ export class P2PManager {
         signalingState: pc.signalingState
       });
       
-      // Monitor track events on the peer connection
+      // Use ontrack to capture streams directly from RTCPeerConnection
+      // This is more reliable than PeerJS's stream event
+      // IMPORTANT: Wait for BOTH audio and video tracks before notifying
+      let receivedStream: MediaStream | null = null;
+      let processedStream = false;
+      
+      const processStreamIfReady = () => {
+        if (processedStream || !receivedStream) return;
+        
+        const hasAudio = receivedStream.getAudioTracks().length > 0;
+        const hasVideo = receivedStream.getVideoTracks().length > 0;
+        
+        log('MEDIA', '🔍 Checking if stream is ready (outgoing)', {
+          peerId,
+          hasAudio,
+          hasVideo,
+          alreadyProcessed: this.mediaConnections.has(peerId)
+        });
+        
+        if (this.mediaConnections.has(peerId)) {
+          log('MEDIA', '⏭️ Stream already processed (outgoing), skipping', { peerId });
+          return;
+        }
+        
+        // Wait for both tracks if possible
+        if (hasAudio && hasVideo) {
+          processedStream = true;
+          log('MEDIA', '🎥 Processing stream (outgoing) - BOTH tracks received', {
+            peerId,
+            audioTracks: receivedStream.getAudioTracks().length,
+            videoTracks: receivedStream.getVideoTracks().length,
+            audioTrackStates: receivedStream.getAudioTracks().map(t => ({
+              id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState
+            })),
+            videoTrackStates: receivedStream.getVideoTracks().map(t => ({
+              id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState
+            }))
+          });
+          
+          // Move from pending to active
+          this.pendingMediaConnections.delete(peerId);
+          this.mediaConnections.set(peerId, mediaConn);
+          
+          // Ensure all tracks are enabled
+          receivedStream.getAudioTracks().forEach(track => {
+            track.enabled = true;
+          });
+          receivedStream.getVideoTracks().forEach(track => {
+            track.enabled = true;
+          });
+          
+          this.onStreamCallback?.(peerId, receivedStream);
+        }
+      };
+      
       pc.ontrack = (event) => {
-        log('MEDIA', '🎯 ontrack event fired!', {
+        log('MEDIA', '🎯 ontrack event fired (outgoing)!', {
           peerId,
           trackKind: event.track.kind,
           trackId: event.track.id,
@@ -533,55 +1032,139 @@ export class P2PManager {
           trackReadyState: event.track.readyState,
           streamsCount: event.streams.length
         });
+        
+        // Get the stream from the event
+        if (event.streams && event.streams.length > 0) {
+          receivedStream = event.streams[0];
+          
+          // Ensure the new track is enabled
+          event.track.enabled = true;
+          
+          // DIAGNOSTIC: Add event listeners to monitor track state changes
+          const track = event.track;
+          
+          track.onmute = () => {
+            log('MEDIA', '🔇 Track MUTED event (outgoing)!', {
+              peerId,
+              trackKind: track.kind,
+              trackId: track.id,
+              trackEnabled: track.enabled,
+              trackMuted: track.muted,
+              trackReadyState: track.readyState
+            });
+          };
+          
+          track.onunmute = () => {
+            log('MEDIA', '🔊 Track UNMUTED event (outgoing)!', {
+              peerId,
+              trackKind: track.kind,
+              trackId: track.id,
+              trackEnabled: track.enabled,
+              trackMuted: track.muted,
+              trackReadyState: track.readyState
+            });
+            // When track unmutes, try to process stream again
+            if (track.kind === 'video') {
+              processStreamIfReady();
+            }
+          };
+          
+          track.onended = () => {
+            log('MEDIA', '⏹️ Track ENDED event (outgoing)!', {
+              peerId,
+              trackKind: track.kind,
+              trackId: track.id
+            });
+          };
+          
+          // DIAGNOSTIC: Check if video track is muted (no data flowing)
+          if (track.kind === 'video' && track.muted) {
+            log('MEDIA', '⚠️ WARNING: Video track is MUTED (outgoing - no data flowing)!', {
+              peerId,
+              trackId: track.id,
+              trackEnabled: track.enabled,
+              trackReadyState: track.readyState
+            });
+          }
+          
+          // Log current stream state
+          log('MEDIA', '📊 Stream state after ontrack (outgoing)', {
+            peerId,
+            trackKind: event.track.kind,
+            audioTracks: receivedStream.getAudioTracks().length,
+            videoTracks: receivedStream.getVideoTracks().length,
+            audioMuted: receivedStream.getAudioTracks().map(t => t.muted),
+            videoMuted: receivedStream.getVideoTracks().map(t => t.muted)
+          });
+          
+          // Try to process the stream
+          processStreamIfReady();
+        }
       };
+      
+      // DIAGNOSTIC: Log transceiver states to check direction
+      setTimeout(() => {
+        const transceivers = pc.getTransceivers();
+        log('MEDIA', '📊 Transceiver states (outgoing call)', {
+          peerId,
+          transceivers: transceivers.map(t => ({
+            mid: t.mid,
+            direction: t.direction,
+            currentDirection: t.currentDirection,
+            senderTrackKind: t.sender.track?.kind,
+            senderTrackEnabled: t.sender.track?.enabled,
+            senderTrackMuted: t.sender.track?.muted,
+            receiverTrackKind: t.receiver.track?.kind,
+            receiverTrackEnabled: t.receiver.track?.enabled,
+            receiverTrackMuted: t.receiver.track?.muted
+          }))
+        });
+      }, 1000);
+      
+      // Fallback: if we only receive one track after timeout, process anyway
+      setTimeout(() => {
+        if (receivedStream && !processedStream && !this.mediaConnections.has(peerId)) {
+          log('MEDIA', '⏰ Timeout (outgoing) - processing stream with available tracks', {
+            peerId,
+            audioTracks: receivedStream.getAudioTracks().length,
+            videoTracks: receivedStream.getVideoTracks().length
+          });
+          
+          processedStream = true;
+          this.pendingMediaConnections.delete(peerId);
+          this.mediaConnections.set(peerId, mediaConn);
+          
+          receivedStream.getTracks().forEach(track => {
+            track.enabled = true;
+          });
+          
+          this.onStreamCallback?.(peerId, receivedStream);
+        }
+      }, 3000);
     }
 
+    // Keep the PeerJS stream event as a fallback
     mediaConn.on('stream', (remoteStream) => {
-      log('MEDIA', '🎥 Received remote stream (outgoing call)', {
+      log('MEDIA', '🎥 Received remote stream via PeerJS event', {
         peerId,
         audioTracks: remoteStream.getAudioTracks().length,
-        videoTracks: remoteStream.getVideoTracks().length,
-        audioTrackStates: remoteStream.getAudioTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
-        videoTrackStates: remoteStream.getVideoTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState }))
+        videoTracks: remoteStream.getVideoTracks().length
       });
       
-      // Move from pending to active
-      this.pendingMediaConnections.delete(peerId);
-      this.mediaConnections.set(peerId, mediaConn);
-      
-      // Ensure audio tracks are enabled
-      remoteStream.getAudioTracks().forEach(track => {
-        log('MEDIA', '🔊 Remote audio track state (before enable)', {
-          peerId,
-          enabled: track.enabled,
-          muted: track.muted,
-          readyState: track.readyState
+      // Only process if we haven't already via ontrack
+      if (!this.mediaConnections.has(peerId)) {
+        this.pendingMediaConnections.delete(peerId);
+        this.mediaConnections.set(peerId, mediaConn);
+        
+        remoteStream.getAudioTracks().forEach(track => {
+          track.enabled = true;
         });
-        // Force enable audio track
-        track.enabled = true;
-        log('MEDIA', '🔊 Remote audio track state (after enable)', {
-          peerId,
-          enabled: track.enabled
+        remoteStream.getVideoTracks().forEach(track => {
+          track.enabled = true;
         });
-      });
-      
-      // Ensure video tracks are enabled
-      remoteStream.getVideoTracks().forEach(track => {
-        log('MEDIA', '📹 Remote video track state (before enable)', {
-          peerId,
-          enabled: track.enabled,
-          muted: track.muted,
-          readyState: track.readyState
-        });
-        // Force enable video track
-        track.enabled = true;
-        log('MEDIA', '📹 Remote video track state (after enable)', {
-          peerId,
-          enabled: track.enabled
-        });
-      });
-      
-      this.onStreamCallback?.(peerId, remoteStream);
+        
+        this.onStreamCallback?.(peerId, remoteStream);
+      }
     });
 
     mediaConn.on('error', (error) => {
@@ -608,6 +1191,26 @@ export class P2PManager {
    * Setup ICE connection state monitoring for a peer connection
    */
   private setupICEMonitoring(pc: RTCPeerConnection, peerId: string): void {
+    // Log initial state
+    log('ICE', '🔧 Setting up ICE monitoring', {
+      peerId,
+      connectionState: pc.connectionState,
+      iceConnectionState: pc.iceConnectionState,
+      signalingState: pc.signalingState,
+      receivers: pc.getReceivers().map(r => ({
+        trackKind: r.track?.kind,
+        trackEnabled: r.track?.enabled,
+        trackMuted: r.track?.muted,
+        trackReadyState: r.track?.readyState
+      })),
+      senders: pc.getSenders().map(s => ({
+        trackKind: s.track?.kind,
+        trackEnabled: s.track?.enabled,
+        trackMuted: s.track?.muted,
+        trackReadyState: s.track?.readyState
+      }))
+    });
+    
     // Monitor ICE connection state
     pc.oniceconnectionstatechange = () => {
       const state = pc.iceConnectionState as ICEConnectionState;
@@ -621,7 +1224,81 @@ export class P2PManager {
         case 'completed':
           // Connection successful
           this.iceRestartAttempts.delete(peerId);
-          log('ICE', 'ICE connection successful', { peerId });
+          log('ICE', '✅ ICE connection successful', { peerId, state });
+          
+          // Log detailed receiver/sender state when connected
+          log('ICE', '📊 Connection established - checking track states', {
+            peerId,
+            receivers: pc.getReceivers().map(r => ({
+              trackKind: r.track?.kind,
+              trackEnabled: r.track?.enabled,
+              trackMuted: r.track?.muted,
+              trackReadyState: r.track?.readyState,
+              trackId: r.track?.id
+            })),
+            senders: pc.getSenders().map(s => ({
+              trackKind: s.track?.kind,
+              trackEnabled: s.track?.enabled,
+              trackMuted: s.track?.muted,
+              trackReadyState: s.track?.readyState,
+              trackId: s.track?.id
+            }))
+          });
+          
+          // CRITICAL FIX: When ICE is connected, check if video receiver track is muted
+          // If so, try to force a renegotiation by replacing the sender track
+          setTimeout(async () => {
+            if (pc.connectionState === 'connected') {
+              const videoReceiver = pc.getReceivers().find(r => r.track?.kind === 'video');
+              const videoSender = pc.getSenders().find(s => s.track?.kind === 'video');
+              
+              log('ICE', '📊 Track states after 2s delay', {
+                peerId,
+                receivers: pc.getReceivers().map(r => ({
+                  trackKind: r.track?.kind,
+                  trackEnabled: r.track?.enabled,
+                  trackMuted: r.track?.muted,
+                  trackReadyState: r.track?.readyState
+                })),
+                senders: pc.getSenders().map(s => ({
+                  trackKind: s.track?.kind,
+                  trackEnabled: s.track?.enabled,
+                  trackMuted: s.track?.muted,
+                  trackReadyState: s.track?.readyState
+                }))
+              });
+              
+              // If video receiver track is muted and we have a local stream, try to refresh our sender
+              if (videoReceiver?.track?.muted && this.localStream) {
+                log('ICE', '⚠️ Video receiver track is MUTED after ICE connected - attempting to refresh sender', { peerId });
+                
+                // Get a fresh video track and replace the sender
+                try {
+                  const freshStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+                  });
+                  const freshVideoTrack = freshStream.getVideoTracks()[0];
+                  
+                  if (freshVideoTrack && videoSender) {
+                    log('ICE', '🔄 Replacing video sender track to trigger renegotiation', { peerId });
+                    await videoSender.replaceTrack(freshVideoTrack);
+                    
+                    // Update local stream
+                    const oldTrack = this.localStream.getVideoTracks()[0];
+                    if (oldTrack) {
+                      this.localStream.removeTrack(oldTrack);
+                      oldTrack.stop();
+                    }
+                    this.localStream.addTrack(freshVideoTrack);
+                    
+                    log('ICE', '✅ Video sender track replaced', { peerId });
+                  }
+                } catch (err) {
+                  log('ICE', '❌ Failed to refresh video sender', { peerId, error: (err as Error).message });
+                }
+              }
+            }
+          }, 2000);
           break;
           
         case 'disconnected':
@@ -653,17 +1330,55 @@ export class P2PManager {
       log('ICE', 'ICE gathering state changed', { peerId, state: pc.iceGatheringState });
     };
 
-    // Monitor ICE candidates
+    // Monitor ICE candidates and send them via data channel
+    // CRITICAL FIX: PeerJS doesn't properly relay ICE candidates for MediaConnections
+    // We need to manually exchange them via the data channel
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        log('ICE', 'New ICE candidate', {
+        log('ICE', '📤 New ICE candidate - sending via data channel', {
           peerId,
           type: event.candidate.type,
-          protocol: event.candidate.protocol
+          protocol: event.candidate.protocol,
+          address: event.candidate.address,
+          port: event.candidate.port,
+          candidateString: event.candidate.candidate?.substring(0, 100)
         });
+        
+        // CRITICAL: Send the ICE candidate via the data channel
+        const dataConn = this.dataConnections.get(peerId);
+        if (dataConn && dataConn.open) {
+          this.sendMessage(peerId, {
+            type: 'ice-candidate',
+            data: {
+              candidate: event.candidate.candidate,
+              sdpMid: event.candidate.sdpMid,
+              sdpMLineIndex: event.candidate.sdpMLineIndex,
+              usernameFragment: event.candidate.usernameFragment
+            },
+            senderId: this.myId,
+            timestamp: Date.now()
+          });
+          log('ICE', '✅ ICE candidate sent via data channel', { peerId });
+        } else {
+          log('ICE', '⚠️ Cannot send ICE candidate - data channel not open', {
+            peerId,
+            hasDataConn: !!dataConn,
+            isOpen: dataConn?.open
+          });
+        }
       } else {
-        log('ICE', 'ICE gathering complete', { peerId });
+        log('ICE', '✅ ICE gathering complete - all candidates sent', { peerId });
       }
+    };
+    
+    // CRITICAL: Monitor signaling state changes
+    pc.onsignalingstatechange = () => {
+      log('ICE', '📡 Signaling state changed', {
+        peerId,
+        signalingState: pc.signalingState,
+        localDescriptionType: pc.localDescription?.type,
+        remoteDescriptionType: pc.remoteDescription?.type
+      });
     };
 
     // Monitor connection state (newer API)
@@ -773,7 +1488,7 @@ export class P2PManager {
       log('CONN', '✅ Incoming data connection opened', { peerId, isHost: this.isHost });
       this.setConnectionState(peerId, ConnectionState.CONNECTED);
 
-      // If host, send list of existing participants
+      // If host, send list of existing participants AND initiate media call
       if (this.isHost) {
         const peerList = Array.from(this.peers.values());
         log('CONN', '📤 HOST: Sending peer list to new participant', {
@@ -788,6 +1503,27 @@ export class P2PManager {
           senderId: this.myId,
           timestamp: Date.now(),
         });
+        
+        // CRITICAL FIX: Host initiates media call to the new participant
+        // Wait a bit for the participant to be ready
+        if (this.localStream && !this.mediaConnections.has(peerId) && !this.pendingMediaConnections.has(peerId)) {
+          log('CONN', '⏳ HOST: Waiting 1s before initiating media call to new participant...', { peerId });
+          setTimeout(() => {
+            if (!this.mediaConnections.has(peerId) && !this.pendingMediaConnections.has(peerId)) {
+              log('CONN', '📞 HOST: Initiating media call to new participant', { peerId });
+              this.initiateMediaConnection(peerId, this.localStream);
+            } else {
+              log('CONN', '⏭️ HOST: Media connection already exists, skipping', { peerId });
+            }
+          }, 1000);
+        } else {
+          log('CONN', '⚠️ HOST: Cannot initiate media call yet', {
+            peerId,
+            hasLocalStream: !!this.localStream,
+            hasMediaConnection: this.mediaConnections.has(peerId),
+            hasPendingMediaConnection: this.pendingMediaConnections.has(peerId)
+          });
+        }
       }
     });
 
@@ -810,10 +1546,19 @@ export class P2PManager {
   /**
    * Gérer appel média entrant
    * Now properly handles the case when local stream is not yet available
+   * CRITICAL: Always gets a fresh video track before answering
    */
-  private handleIncomingCall(mediaConn: MediaConnection) {
+  private async handleIncomingCall(mediaConn: MediaConnection) {
     const peerId = mediaConn.peer;
-    log('MEDIA', '🔔 Handling incoming call', { peerId, hasLocalStream: !!this.localStream });
+    log('MEDIA', '🔔 Handling incoming call', {
+      peerId,
+      hasLocalStream: !!this.localStream,
+      localStreamTracks: this.localStream?.getTracks().length || 0,
+      localStreamAudioTracks: this.localStream?.getAudioTracks().length || 0,
+      localStreamVideoTracks: this.localStream?.getVideoTracks().length || 0,
+      localStreamAudioEnabled: this.localStream?.getAudioTracks().map(t => ({ id: t.id, enabled: t.enabled, readyState: t.readyState })),
+      localStreamVideoEnabled: this.localStream?.getVideoTracks().map(t => ({ id: t.id, enabled: t.enabled, readyState: t.readyState }))
+    });
 
     // Store as pending first
     this.pendingMediaConnections.set(peerId, mediaConn);
@@ -825,40 +1570,334 @@ export class P2PManager {
       if (pc) {
         this.setupICEMonitoring(pc, peerId);
         
-        // Log the peer connection state for debugging
         log('MEDIA', '📊 Peer connection state after answer', {
           peerId,
           connectionState: pc.connectionState,
           iceConnectionState: pc.iceConnectionState,
           signalingState: pc.signalingState
         });
+        
+        // Use ontrack to capture streams directly from RTCPeerConnection
+        // This is more reliable than PeerJS's stream event
+        // IMPORTANT: Wait for BOTH audio and video tracks before notifying
+        let receivedStream: MediaStream | null = null;
+        let processedStream = false;
+        
+        const processStreamIfReady = () => {
+          if (processedStream || !receivedStream) return;
+          
+          const hasAudio = receivedStream.getAudioTracks().length > 0;
+          const hasVideo = receivedStream.getVideoTracks().length > 0;
+          
+          log('MEDIA', '🔍 Checking if stream is ready to process', {
+            peerId,
+            hasAudio,
+            hasVideo,
+            audioTracks: receivedStream.getAudioTracks().length,
+            videoTracks: receivedStream.getVideoTracks().length,
+            alreadyProcessed: this.mediaConnections.has(peerId)
+          });
+          
+          // Only process if we have both tracks OR if we've already processed
+          if (this.mediaConnections.has(peerId)) {
+            log('MEDIA', '⏭️ Stream already processed, skipping', { peerId });
+            return;
+          }
+          
+          // Wait for both tracks if possible
+          if (hasAudio && hasVideo) {
+            processedStream = true;
+            log('MEDIA', '🎥 Processing stream - BOTH tracks received', {
+              peerId,
+              audioTracks: receivedStream.getAudioTracks().length,
+              videoTracks: receivedStream.getVideoTracks().length,
+              audioTrackStates: receivedStream.getAudioTracks().map(t => ({
+                id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState
+              })),
+              videoTrackStates: receivedStream.getVideoTracks().map(t => ({
+                id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState
+              }))
+            });
+            
+            this.pendingMediaConnections.delete(peerId);
+            this.mediaConnections.set(peerId, mediaConn);
+            
+            // Ensure all tracks are enabled
+            receivedStream.getAudioTracks().forEach(track => {
+              track.enabled = true;
+            });
+            receivedStream.getVideoTracks().forEach(track => {
+              track.enabled = true;
+            });
+            
+            this.onStreamCallback?.(peerId, receivedStream);
+          }
+        };
+        
+        pc.ontrack = (event) => {
+          log('MEDIA', '🎯 ontrack event fired (incoming call)!', {
+            peerId,
+            trackKind: event.track.kind,
+            trackId: event.track.id,
+            trackEnabled: event.track.enabled,
+            trackMuted: event.track.muted,
+            trackReadyState: event.track.readyState,
+            streamsCount: event.streams.length
+          });
+          
+          // Get the stream from the event
+          if (event.streams && event.streams.length > 0) {
+            receivedStream = event.streams[0];
+            
+            // Ensure the new track is enabled
+            event.track.enabled = true;
+            
+            // DIAGNOSTIC: Add event listeners to monitor track state changes
+            const track = event.track;
+            
+            track.onmute = () => {
+              log('MEDIA', '🔇 Track MUTED event!', {
+                peerId,
+                trackKind: track.kind,
+                trackId: track.id,
+                trackEnabled: track.enabled,
+                trackMuted: track.muted,
+                trackReadyState: track.readyState
+              });
+            };
+            
+            track.onunmute = () => {
+              log('MEDIA', '🔊 Track UNMUTED event!', {
+                peerId,
+                trackKind: track.kind,
+                trackId: track.id,
+                trackEnabled: track.enabled,
+                trackMuted: track.muted,
+                trackReadyState: track.readyState
+              });
+              // When track unmutes, try to process stream again
+              if (track.kind === 'video') {
+                processStreamIfReady();
+              }
+            };
+            
+            track.onended = () => {
+              log('MEDIA', '⏹️ Track ENDED event!', {
+                peerId,
+                trackKind: track.kind,
+                trackId: track.id
+              });
+            };
+            
+            // DIAGNOSTIC: Check if video track is muted (no data flowing)
+            if (track.kind === 'video' && track.muted) {
+              log('MEDIA', '⚠️ WARNING: Video track is MUTED (no data flowing)!', {
+                peerId,
+                trackId: track.id,
+                trackEnabled: track.enabled,
+                trackReadyState: track.readyState
+              });
+            }
+            
+            // Log current stream state
+            log('MEDIA', '📊 Stream state after ontrack', {
+              peerId,
+              trackKind: event.track.kind,
+              audioTracks: receivedStream.getAudioTracks().length,
+              videoTracks: receivedStream.getVideoTracks().length,
+              audioMuted: receivedStream.getAudioTracks().map(t => t.muted),
+              videoMuted: receivedStream.getVideoTracks().map(t => t.muted)
+            });
+            
+            // Try to process the stream
+            processStreamIfReady();
+          }
+        };
+        
+        // DIAGNOSTIC: Log transceiver states to check direction
+        // Also fix direction if needed
+        setTimeout(() => {
+          const transceivers = pc.getTransceivers();
+          log('MEDIA', '📊 Transceiver states (incoming call)', {
+            peerId,
+            transceivers: transceivers.map(t => ({
+              mid: t.mid,
+              direction: t.direction,
+              currentDirection: t.currentDirection,
+              senderTrackKind: t.sender.track?.kind,
+              senderTrackEnabled: t.sender.track?.enabled,
+              senderTrackMuted: t.sender.track?.muted,
+              receiverTrackKind: t.receiver.track?.kind,
+              receiverTrackEnabled: t.receiver.track?.enabled,
+              receiverTrackMuted: t.receiver.track?.muted
+            }))
+          });
+          
+          // CRITICAL FIX: Ensure transceivers are set to sendrecv
+          // This ensures bidirectional video flow
+          transceivers.forEach(t => {
+            if (t.direction !== 'sendrecv' && t.direction !== 'inactive') {
+              log('MEDIA', '⚠️ Transceiver direction is not sendrecv, fixing...', {
+                peerId,
+                mid: t.mid,
+                currentDirection: t.direction,
+                receiverTrackKind: t.receiver.track?.kind
+              });
+              try {
+                t.direction = 'sendrecv';
+                log('MEDIA', '✅ Transceiver direction set to sendrecv', { peerId, mid: t.mid });
+              } catch (e) {
+                log('MEDIA', '❌ Failed to set transceiver direction', { peerId, error: (e as Error).message });
+              }
+            }
+          });
+        }, 1000);
+        
+        // Monitor receiver track states periodically and log if video stops
+        let lastBytesReceived = 0;
+        let noDataCount = 0;
+        let renegotiationAttempted = false;
+        const trackMonitorInterval = setInterval(async () => {
+          if (pc.connectionState === 'closed' || pc.connectionState === 'failed') {
+            clearInterval(trackMonitorInterval);
+            return;
+          }
+          
+          const receivers = pc.getReceivers();
+          const videoReceiver = receivers.find(r => r.track?.kind === 'video');
+          
+          if (videoReceiver && videoReceiver.track) {
+            const track = videoReceiver.track;
+            
+            // Try to get stats to see what's happening
+            try {
+              const stats = await pc.getStats(videoReceiver.track);
+              stats.forEach(report => {
+                if (report.type === 'inbound-rtp' && report.kind === 'video') {
+                  const bytesReceived = report.bytesReceived || 0;
+                  const isReceivingData = bytesReceived > lastBytesReceived;
+                  
+                  log('MEDIA', '📊 Video RTP stats:', {
+                    peerId,
+                    bytesReceived,
+                    bytesDelta: bytesReceived - lastBytesReceived,
+                    isReceivingData,
+                    packetsReceived: report.packetsReceived,
+                    packetsLost: report.packetsLost,
+                    framesReceived: report.framesReceived,
+                    framesDecoded: report.framesDecoded,
+                    framesDropped: report.framesDropped,
+                    frameWidth: report.frameWidth,
+                    frameHeight: report.frameHeight,
+                    trackMuted: track.muted,
+                    trackEnabled: track.enabled
+                  });
+                  
+                  // If no data is being received for multiple intervals, try to renegotiate
+                  if (!isReceivingData && lastBytesReceived > 0) {
+                    noDataCount++;
+                    log('MEDIA', '⚠️ No video data received!', { peerId, noDataCount, bytesReceived, lastBytesReceived });
+                    
+                    // After 2 intervals with no data, try renegotiation
+                    if (noDataCount >= 2 && !renegotiationAttempted) {
+                      renegotiationAttempted = true;
+                      log('MEDIA', '🔄 Attempting renegotiation to restore video', { peerId });
+                      
+                      // Send a message to the peer to request stream refresh
+                      this.sendMessage(peerId, {
+                        type: 'stream-ready',
+                        data: { requestRefresh: true },
+                        senderId: this.myId,
+                        timestamp: Date.now()
+                      });
+                    }
+                  } else if (isReceivingData) {
+                    noDataCount = 0; // Reset counter when data is flowing
+                    renegotiationAttempted = false; // Allow future renegotiations
+                  }
+                  
+                  lastBytesReceived = bytesReceived;
+                }
+              });
+            } catch (e) {
+              // Stats error, ignore
+            }
+            
+            if (track.muted) {
+              log('MEDIA', '⚠️ MONITOR: Video track is still MUTED', {
+                peerId,
+                trackId: track.id,
+                enabled: track.enabled,
+                readyState: track.readyState
+              });
+              
+              // CRITICAL FIX: If video track is muted and we haven't received any data,
+              // the sender might not be sending video. Request a stream refresh.
+              if (lastBytesReceived === 0 && !renegotiationAttempted) {
+                renegotiationAttempted = true;
+                log('MEDIA', '🔄 Video track muted with no data - requesting stream refresh', { peerId });
+                
+                // Send a message to the peer to request stream refresh
+                this.sendMessage(peerId, {
+                  type: 'stream-ready',
+                  data: { requestRefresh: true },
+                  senderId: this.myId,
+                  timestamp: Date.now()
+                });
+              }
+            }
+          }
+        }, 5000);
+        
+        // Clean up monitor when connection closes
+        mediaConn.on('close', () => {
+          clearInterval(trackMonitorInterval);
+        });
+        
+        // Fallback: if we only receive one track after timeout, process anyway
+        setTimeout(() => {
+          if (receivedStream && !processedStream && !this.mediaConnections.has(peerId)) {
+            log('MEDIA', '⏰ Timeout - processing stream with available tracks', {
+              peerId,
+              audioTracks: receivedStream.getAudioTracks().length,
+              videoTracks: receivedStream.getVideoTracks().length
+            });
+            
+            processedStream = true;
+            this.pendingMediaConnections.delete(peerId);
+            this.mediaConnections.set(peerId, mediaConn);
+            
+            receivedStream.getTracks().forEach(track => {
+              track.enabled = true;
+            });
+            
+            this.onStreamCallback?.(peerId, receivedStream);
+          }
+        }, 3000);
       }
 
+      // Keep the PeerJS stream event as a fallback
       mediaConn.on('stream', (remoteStream) => {
-        log('MEDIA', '🎥 Received stream from incoming call', {
+        log('MEDIA', '🎥 Received stream via PeerJS event (incoming)', {
           peerId,
           audioTracks: remoteStream.getAudioTracks().length,
-          videoTracks: remoteStream.getVideoTracks().length,
-          audioTrackStates: remoteStream.getAudioTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
-          videoTrackStates: remoteStream.getVideoTracks().map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState }))
+          videoTracks: remoteStream.getVideoTracks().length
         });
         
-        this.pendingMediaConnections.delete(peerId);
-        this.mediaConnections.set(peerId, mediaConn);
-        
-        // Ensure audio tracks are enabled
-        remoteStream.getAudioTracks().forEach(track => {
-          log('MEDIA', '🔊 Enabling remote audio track', { peerId, trackId: track.id, wasEnabled: track.enabled });
-          track.enabled = true;
-        });
-        
-        // Ensure video tracks are enabled
-        remoteStream.getVideoTracks().forEach(track => {
-          log('MEDIA', '📹 Enabling remote video track', { peerId, trackId: track.id, wasEnabled: track.enabled });
-          track.enabled = true;
-        });
-        
-        this.onStreamCallback?.(peerId, remoteStream);
+        // Only process if we haven't already via ontrack
+        if (!this.mediaConnections.has(peerId)) {
+          this.pendingMediaConnections.delete(peerId);
+          this.mediaConnections.set(peerId, mediaConn);
+          
+          remoteStream.getAudioTracks().forEach(track => {
+            track.enabled = true;
+          });
+          remoteStream.getVideoTracks().forEach(track => {
+            track.enabled = true;
+          });
+          
+          this.onStreamCallback?.(peerId, remoteStream);
+        }
       });
 
       mediaConn.on('close', () => {
@@ -874,15 +1913,141 @@ export class P2PManager {
     };
 
     // If we have a local stream, answer with it immediately
+    // CRITICAL FIX: Always get a fresh video track before answering
     if (this.localStream && this.localStream.getTracks().length > 0) {
-      log('MEDIA', '✅ Answering call with local stream', {
+      // DIAGNOSTIC: Check if video track is present and enabled
+      let videoTracks = this.localStream.getVideoTracks();
+      const audioTracks = this.localStream.getAudioTracks();
+      
+      log('MEDIA', '📞 Preparing to answer call', {
         peerId,
-        audioTracks: this.localStream.getAudioTracks().length,
-        videoTracks: this.localStream.getVideoTracks().length,
-        audioTrackIds: this.localStream.getAudioTracks().map(t => t.id),
-        videoTrackIds: this.localStream.getVideoTracks().map(t => t.id)
+        audioTracks: audioTracks.length,
+        videoTracks: videoTracks.length,
+        audioTrackStates: audioTracks.map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState })),
+        videoTrackStates: videoTracks.map(t => ({ id: t.id, enabled: t.enabled, muted: t.muted, readyState: t.readyState }))
       });
+      
+      // CRITICAL FIX: ALWAYS get a fresh video track before answering
+      // This ensures the track is actively capturing and not in a stale state
+      try {
+        log('MEDIA', '🔄 Getting fresh video track for answer...', { peerId });
+        const freshStream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: 'user'
+          }
+        });
+        
+        const freshVideoTrack = freshStream.getVideoTracks()[0];
+        if (freshVideoTrack && freshVideoTrack.readyState === 'live') {
+          log('MEDIA', '✅ Got fresh video track for answer!', {
+            peerId,
+            newTrackId: freshVideoTrack.id,
+            muted: freshVideoTrack.muted,
+            enabled: freshVideoTrack.enabled,
+            readyState: freshVideoTrack.readyState
+          });
+          
+          // Replace the old track in the stream
+          const oldTrack = this.localStream.getVideoTracks()[0];
+          if (oldTrack) {
+            this.localStream.removeTrack(oldTrack);
+            oldTrack.stop();
+          }
+          this.localStream.addTrack(freshVideoTrack);
+          videoTracks = this.localStream.getVideoTracks();
+          
+          // CRITICAL FIX: If the fresh track is muted, wait for it to unmute
+          // This happens on mobile when the camera needs time to "warm up"
+          if (freshVideoTrack.muted) {
+            log('MEDIA', '⏳ Fresh video track is muted (answer), waiting for unmute...', { peerId });
+            
+            // Wait for the track to unmute (max 3 seconds)
+            await new Promise<void>((resolve) => {
+              let resolved = false;
+              
+              const onUnmute = () => {
+                if (!resolved) {
+                  resolved = true;
+                  freshVideoTrack.removeEventListener('unmute', onUnmute);
+                  log('MEDIA', '✅ Video track unmuted (answer), proceeding', {
+                    peerId,
+                    muted: freshVideoTrack.muted
+                  });
+                  resolve();
+                }
+              };
+              
+              freshVideoTrack.addEventListener('unmute', onUnmute);
+              
+              // Also check immediately in case it already unmuted
+              if (!freshVideoTrack.muted) {
+                onUnmute();
+              }
+              
+              // Timeout after 3 seconds
+              setTimeout(() => {
+                if (!resolved) {
+                  resolved = true;
+                  freshVideoTrack.removeEventListener('unmute', onUnmute);
+                  log('MEDIA', '⚠️ Timeout waiting for video track to unmute (answer), proceeding anyway', {
+                    peerId,
+                    muted: freshVideoTrack.muted
+                  });
+                  resolve();
+                }
+              }, 3000);
+            });
+          }
+        } else {
+          log('MEDIA', '⚠️ Fresh video track is not live!', {
+            peerId,
+            muted: freshVideoTrack?.muted,
+            readyState: freshVideoTrack?.readyState
+          });
+          freshVideoTrack?.stop();
+        }
+      } catch (err) {
+        log('MEDIA', '⚠️ Could not get fresh video track for answer, using existing', {
+          peerId,
+          error: (err as Error).message
+        });
+      }
+      
+      // DIAGNOSTIC: Warn if no video track
+      if (videoTracks.length === 0) {
+        log('MEDIA', '⚠️ WARNING: Answering call WITHOUT video track!', { peerId });
+      }
+      
+      // CRITICAL DIAGNOSTIC: Log the stream we're about to answer with
+      log('MEDIA', '🚀 ABOUT TO ANSWER with local stream:', {
+        peerId,
+        streamId: this.localStream.id,
+        streamActive: this.localStream.active,
+        totalTracks: this.localStream.getTracks().length,
+        audioTracks: this.localStream.getAudioTracks().map(t => ({
+          id: t.id,
+          kind: t.kind,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState,
+          label: t.label
+        })),
+        videoTracks: this.localStream.getVideoTracks().map(t => ({
+          id: t.id,
+          kind: t.kind,
+          enabled: t.enabled,
+          muted: t.muted,
+          readyState: t.readyState,
+          label: t.label,
+          settings: typeof t.getSettings === 'function' ? t.getSettings() : 'N/A'
+        }))
+      });
+      
       mediaConn.answer(this.localStream);
+      
+      log('MEDIA', '✅ mediaConn.answer() called', { peerId });
       setupHandlersAfterAnswer();
     } else {
       // DIAGNOSTIC: This is a potential problem - no local stream available
@@ -936,11 +2101,113 @@ export class P2PManager {
     const previousStream = this.localStream;
     this.localStream = stream;
     
-    log('STREAM', 'Updating local stream', {
+    log('STREAM', '🔄 Updating local stream in P2PManager', {
       audioTracks: stream.getAudioTracks().length,
       videoTracks: stream.getVideoTracks().length,
-      hadPreviousStream: !!previousStream
+      audioTrackIds: stream.getAudioTracks().map(t => t.id),
+      videoTrackIds: stream.getVideoTracks().map(t => t.id),
+      audioEnabled: stream.getAudioTracks().map(t => t.enabled),
+      videoEnabled: stream.getVideoTracks().map(t => t.enabled),
+      hadPreviousStream: !!previousStream,
+      dataConnectionsCount: this.dataConnections.size,
+      mediaConnectionsCount: this.mediaConnections.size,
+      pendingMediaConnectionsCount: this.pendingMediaConnections.size
     });
+    
+    // CRITICAL: Monitor local video track for mute events
+    // This helps detect when the camera stops sending data
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      // Store reference for potential reactivation
+      const self = this;
+      
+      videoTrack.onmute = () => {
+        log('STREAM', '⚠️ LOCAL video track MUTED - camera may have stopped!', {
+          trackId: videoTrack.id,
+          enabled: videoTrack.enabled,
+          readyState: videoTrack.readyState
+        });
+        // Notify peers that our video is temporarily unavailable
+        this.broadcast({
+          type: 'media-state',
+          data: { videoMuted: true },
+          senderId: this.myId,
+          timestamp: Date.now()
+        });
+        
+        // CRITICAL FIX: Try to reactivate the video track after a short delay
+        // This can happen on mobile when the app goes to background briefly
+        setTimeout(() => {
+          if (videoTrack.readyState === 'live' && videoTrack.muted) {
+            log('STREAM', '🔄 Attempting to reactivate muted video track...', {
+              trackId: videoTrack.id
+            });
+            
+            // Try toggling enabled state to kickstart the track
+            const wasEnabled = videoTrack.enabled;
+            videoTrack.enabled = false;
+            setTimeout(() => {
+              videoTrack.enabled = wasEnabled;
+              log('STREAM', '🔄 Video track enabled toggled', {
+                trackId: videoTrack.id,
+                enabled: videoTrack.enabled,
+                muted: videoTrack.muted
+              });
+              
+              // If still muted after toggle, try to replace the track in all connections
+              if (videoTrack.muted) {
+                log('STREAM', '⚠️ Video track still muted after toggle, updating connections...', {
+                  trackId: videoTrack.id
+                });
+                // Force update all media connections with the current stream
+                self.mediaConnections.forEach((mediaConn, peerId) => {
+                  self.updateMediaConnectionTracks(mediaConn, stream, peerId);
+                });
+              }
+            }, 100);
+          }
+        }, 1000);
+      };
+      
+      videoTrack.onunmute = () => {
+        log('STREAM', '✅ LOCAL video track UNMUTED - camera is sending data', {
+          trackId: videoTrack.id,
+          enabled: videoTrack.enabled,
+          readyState: videoTrack.readyState
+        });
+        // Notify peers that our video is back
+        this.broadcast({
+          type: 'media-state',
+          data: { videoMuted: false },
+          senderId: this.myId,
+          timestamp: Date.now()
+        });
+      };
+      
+      videoTrack.onended = () => {
+        log('STREAM', '🔴 LOCAL video track ENDED - camera was released!', {
+          trackId: videoTrack.id
+        });
+      };
+      
+      // Log initial state
+      log('STREAM', '📹 Local video track state:', {
+        trackId: videoTrack.id,
+        enabled: videoTrack.enabled,
+        muted: videoTrack.muted,
+        readyState: videoTrack.readyState,
+        label: videoTrack.label
+      });
+      
+      // DIAGNOSTIC: Check if video track is already muted at start
+      if (videoTrack.muted) {
+        log('STREAM', '⚠️ WARNING: Local video track is ALREADY MUTED at initialization!', {
+          trackId: videoTrack.id,
+          enabled: videoTrack.enabled,
+          readyState: videoTrack.readyState
+        });
+      }
+    }
 
     // Update all active media connections
     this.mediaConnections.forEach((mediaConn, peerId) => {
@@ -1325,9 +2592,9 @@ export class P2PManager {
 
           const preferredCodecs = [...vp9, ...vp8, ...h264, ...others];
           
-          if (preferredCodecs.length > 0 && transceiver.setCodecPreferences) {
-            transceiver.setCodecPreferences(preferredCodecs);
-          }
+          // if (preferredCodecs.length > 0 && transceiver.setCodecPreferences) {
+          //   transceiver.setCodecPreferences(preferredCodecs);
+          // }
         }
       }
     } catch (_error) {
@@ -1383,25 +2650,13 @@ export class P2PManager {
 
           this.broadcast(peerJoinedMessage, fromPeerId);
 
-          // Host initiates media call to the new participant
-          // This ensures bidirectional media flow
-          if (this.localStream && this.peer && !this.mediaConnections.has(fromPeerId) && !this.pendingMediaConnections.has(fromPeerId)) {
-            log('MSG', '📞 HOST: Initiating media call to new participant', {
-              peerId: fromPeerId,
-              hasLocalStream: !!this.localStream,
-              localStreamTracks: this.localStream?.getTracks().length
-            });
-            setTimeout(() => {
-              this.callPeer(fromPeerId);
-            }, 500);
-          } else {
-            log('MSG', '⚠️ HOST: Cannot initiate media call', {
-              hasLocalStream: !!this.localStream,
-              hasPeer: !!this.peer,
-              hasMediaConnection: this.mediaConnections.has(fromPeerId),
-              hasPendingMediaConnection: this.pendingMediaConnections.has(fromPeerId)
-            });
-          }
+          // NOTE: Host media call is now initiated in connectToPeer() when data connection opens
+          // This prevents duplicate calls and race conditions
+          log('MSG', '📋 HOST: Media call will be initiated from data connection handler', {
+            peerId: fromPeerId,
+            hasMediaConnection: this.mediaConnections.has(fromPeerId),
+            hasPendingMediaConnection: this.pendingMediaConnections.has(fromPeerId)
+          });
         }
 
         log('MSG', '🔔 Calling onPeerConnectedCallback', { peerId: fromPeerId, name: message.data.name });
@@ -1533,11 +2788,205 @@ export class P2PManager {
       case 'stream-ready':
         // Peer's stream is ready, initiate media connection if we don't have one
         log('MSG', 'Peer stream ready', { peerId: fromPeerId, data: message.data });
-        if (!this.mediaConnections.has(fromPeerId) && !this.pendingMediaConnections.has(fromPeerId)) {
-          if (this.localStream) {
-            log('MSG', 'Initiating media connection after stream-ready', { peerId: fromPeerId });
-            this.initiateMediaConnection(fromPeerId, this.localStream);
+        
+        // CRITICAL FIX: If peer is requesting a stream refresh, re-send our video track
+        if (message.data?.requestRefresh) {
+          log('MSG', '🔄 Peer requested stream refresh - re-sending video track', { peerId: fromPeerId });
+          
+          // Get the media connection for this peer
+          const refreshMediaConn = this.mediaConnections.get(fromPeerId);
+          if (refreshMediaConn && this.localStream) {
+            const refreshPc = (refreshMediaConn as any).peerConnection as RTCPeerConnection;
+            // Accept more connection states - the connection might still be establishing
+            if (refreshPc && (refreshPc.connectionState === 'connected' || refreshPc.connectionState === 'connecting' || refreshPc.iceConnectionState === 'connected' || refreshPc.iceConnectionState === 'checking')) {
+              const currentVideoTrack = this.localStream.getVideoTracks()[0];
+              if (currentVideoTrack) {
+                log('MSG', '📹 Refreshing video track', {
+                  peerId: fromPeerId,
+                  trackId: currentVideoTrack.id,
+                  enabled: currentVideoTrack.enabled,
+                  muted: currentVideoTrack.muted,
+                  readyState: currentVideoTrack.readyState,
+                  connectionState: refreshPc.connectionState,
+                  iceConnectionState: refreshPc.iceConnectionState
+                });
+                
+                // Try to replace the video track to force a refresh
+                const refreshVideoSender = refreshPc.getSenders().find(s => s.track?.kind === 'video');
+                if (refreshVideoSender) {
+                  // First, try to get a fresh video track
+                  navigator.mediaDevices.getUserMedia({
+                    video: {
+                      width: { ideal: 640 },
+                      height: { ideal: 480 },
+                      facingMode: 'user'
+                    }
+                  }).then(async (freshStream) => {
+                    const freshVideoTrack = freshStream.getVideoTracks()[0];
+                    if (freshVideoTrack) {
+                      log('MSG', '✅ Got fresh video track for refresh', {
+                        peerId: fromPeerId,
+                        newTrackId: freshVideoTrack.id,
+                        muted: freshVideoTrack.muted,
+                        enabled: freshVideoTrack.enabled,
+                        readyState: freshVideoTrack.readyState
+                      });
+                      
+                      // CRITICAL FIX: Wait for the track to unmute if needed
+                      if (freshVideoTrack.muted) {
+                        log('MSG', '⏳ Fresh video track is muted (refresh), waiting for unmute...', { peerId: fromPeerId });
+                        
+                        await new Promise<void>((resolve) => {
+                          let resolved = false;
+                          
+                          const onUnmute = () => {
+                            if (!resolved) {
+                              resolved = true;
+                              freshVideoTrack.removeEventListener('unmute', onUnmute);
+                              log('MSG', '✅ Video track unmuted (refresh), proceeding', {
+                                peerId: fromPeerId,
+                                muted: freshVideoTrack.muted
+                              });
+                              resolve();
+                            }
+                          };
+                          
+                          freshVideoTrack.addEventListener('unmute', onUnmute);
+                          
+                          // Also check immediately in case it already unmuted
+                          if (!freshVideoTrack.muted) {
+                            onUnmute();
+                          }
+                          
+                          // Timeout after 3 seconds
+                          setTimeout(() => {
+                            if (!resolved) {
+                              resolved = true;
+                              freshVideoTrack.removeEventListener('unmute', onUnmute);
+                              log('MSG', '⚠️ Timeout waiting for video track to unmute (refresh), proceeding anyway', {
+                                peerId: fromPeerId,
+                                muted: freshVideoTrack.muted
+                              });
+                              resolve();
+                            }
+                          }, 3000);
+                        });
+                      }
+                      
+                      // Now replace the track in the sender
+                      try {
+                        await refreshVideoSender.replaceTrack(freshVideoTrack);
+                        log('MSG', '✅ Video track replaced successfully', {
+                          peerId: fromPeerId,
+                          newTrackMuted: freshVideoTrack.muted
+                        });
+                        
+                        // Also update our local stream reference
+                        const oldTrack = this.localStream?.getVideoTracks()[0];
+                        if (oldTrack && this.localStream) {
+                          this.localStream.removeTrack(oldTrack);
+                          oldTrack.stop();
+                          this.localStream.addTrack(freshVideoTrack);
+                        }
+                      } catch (replaceErr) {
+                        log('MSG', '❌ Failed to replace video track', { peerId: fromPeerId, error: (replaceErr as Error).message });
+                        // Stop the new track since we couldn't use it
+                        freshVideoTrack.stop();
+                      }
+                    }
+                  }).catch(err => {
+                    log('MSG', '❌ Failed to get fresh video track', { peerId: fromPeerId, error: err.message });
+                    
+                    // Fallback: try to toggle the existing track
+                    log('MSG', '🔄 Fallback: toggling existing video track', { peerId: fromPeerId });
+                    const wasEnabled = currentVideoTrack.enabled;
+                    currentVideoTrack.enabled = false;
+                    setTimeout(() => {
+                      currentVideoTrack.enabled = wasEnabled;
+                      log('MSG', '🔄 Video track toggled', {
+                        peerId: fromPeerId,
+                        enabled: currentVideoTrack.enabled,
+                        muted: currentVideoTrack.muted
+                      });
+                    }, 100);
+                  });
+                } else {
+                  log('MSG', '⚠️ No video sender found', { peerId: fromPeerId });
+                }
+              } else {
+                log('MSG', '⚠️ No video track in local stream', { peerId: fromPeerId });
+              }
+            } else {
+              log('MSG', '⚠️ Peer connection not in valid state for refresh', {
+                peerId: fromPeerId,
+                connectionState: refreshPc?.connectionState,
+                iceConnectionState: refreshPc?.iceConnectionState
+              });
+            }
           }
+        } else {
+          // Normal stream-ready handling
+          if (!this.mediaConnections.has(fromPeerId) && !this.pendingMediaConnections.has(fromPeerId)) {
+            if (this.localStream) {
+              log('MSG', 'Initiating media connection after stream-ready', { peerId: fromPeerId });
+              this.initiateMediaConnection(fromPeerId, this.localStream);
+            }
+          }
+        }
+        break;
+
+      case 'ice-candidate':
+        // CRITICAL FIX: Receive ICE candidate from peer and add it to the peer connection
+        log('ICE', '📥 Received ICE candidate via data channel', {
+          peerId: fromPeerId,
+          candidate: message.data?.candidate?.substring(0, 50)
+        });
+        
+        // Find the media connection for this peer
+        const mediaConnForIce = this.mediaConnections.get(fromPeerId) || this.pendingMediaConnections.get(fromPeerId);
+        if (mediaConnForIce) {
+          const pcForIce = (mediaConnForIce as any).peerConnection as RTCPeerConnection;
+          if (pcForIce && pcForIce.signalingState !== 'closed') {
+            try {
+              const iceCandidate = new RTCIceCandidate({
+                candidate: message.data.candidate,
+                sdpMid: message.data.sdpMid,
+                sdpMLineIndex: message.data.sdpMLineIndex,
+                usernameFragment: message.data.usernameFragment
+              });
+              
+              pcForIce.addIceCandidate(iceCandidate).then(() => {
+                log('ICE', '✅ ICE candidate added successfully', {
+                  peerId: fromPeerId,
+                  iceConnectionState: pcForIce.iceConnectionState,
+                  connectionState: pcForIce.connectionState
+                });
+              }).catch((err) => {
+                log('ICE', '❌ Failed to add ICE candidate', {
+                  peerId: fromPeerId,
+                  error: err.message,
+                  signalingState: pcForIce.signalingState
+                });
+              });
+            } catch (err) {
+              log('ICE', '❌ Error creating ICE candidate', {
+                peerId: fromPeerId,
+                error: (err as Error).message
+              });
+            }
+          } else {
+            log('ICE', '⚠️ Cannot add ICE candidate - peer connection not ready', {
+              peerId: fromPeerId,
+              hasPc: !!pcForIce,
+              signalingState: pcForIce?.signalingState
+            });
+          }
+        } else {
+          log('ICE', '⚠️ Cannot add ICE candidate - no media connection found', {
+            peerId: fromPeerId,
+            hasMediaConn: this.mediaConnections.has(fromPeerId),
+            hasPendingMediaConn: this.pendingMediaConnections.has(fromPeerId)
+          });
         }
         break;
 

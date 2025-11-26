@@ -374,10 +374,12 @@ export function PreJoinPage() {
       }
 
       // Extraire le hostPeerId du hash pour Quick Fix P2P
+      // Le hash contient le peer ID de l'hôte (format: #peer_id=xxx)
       const hash = window.location.hash;
       let hostPeerId: string | undefined = undefined;
       if (hash.startsWith('#peer_id=')) {
         hostPeerId = hash.replace('#peer_id=', '');
+        console.log('[PreJoinPage] Using hostPeerId from URL hash:', hostPeerId);
       }
       
       // Passer les infos à la page de réunion

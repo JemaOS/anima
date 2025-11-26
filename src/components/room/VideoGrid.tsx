@@ -55,6 +55,25 @@ export function VideoGrid({
     : Array.from(participants.values());
 
   const count = allParticipants.length;
+  
+  // DIAGNOSTIC: Log participants being rendered
+  console.log('[VideoGrid] Rendering participants:', {
+    localParticipantId: localParticipant?.id,
+    localParticipantName: localParticipant?.name,
+    localHasStream: !!localParticipant?.stream,
+    remoteParticipantsCount: participants.size,
+    remoteParticipants: Array.from(participants.entries()).map(([id, p]) => ({
+      id,
+      name: p.name,
+      hasStream: !!p.stream,
+      videoEnabled: p.videoEnabled,
+      audioEnabled: p.audioEnabled,
+      streamId: p.stream?.id,
+      videoTracks: p.stream?.getVideoTracks().length || 0,
+      audioTracks: p.stream?.getAudioTracks().length || 0,
+    })),
+    totalCount: count
+  });
 
   // Determine grid layout based on participant count AND screen size
   const getGridLayout = () => {
