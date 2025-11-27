@@ -1,16 +1,26 @@
+<!-- Copyright (c) 2025 Jema Technology.
+     Distributed under the license specified in the root directory of this project. -->
 <!doctype html>
 <html lang="fr">
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#1a73e8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#007AFF" />
   <meta name="description" content="Visioconference P2P securisee et sans logs" />
+  
+  <!-- Apple-specific meta tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Anima" />
   
   <!-- PWA -->
   <link rel="manifest" href="/manifest.json" />
-  <link rel="icon" href="/icons/icon-192x192.png" />
+  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png" />
   <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+  <link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512x512.png" />
   
   <!-- Preconnect pour PeerJS -->
   <link rel="preconnect" href="https://cloud.peerjs.com" />

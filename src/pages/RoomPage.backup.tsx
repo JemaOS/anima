@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import Peer, { DataConnection, MediaConnection } from 'peerjs';

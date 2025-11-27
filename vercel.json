@@ -1,5 +1,24 @@
 {
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(self), microphone=(self), display-capture=(self), fullscreen=(self)"
+        },
+        {
+          "key": "Cross-Origin-Opener-Policy",
+          "value": "same-origin-allow-popups"
+        },
+        {
+          "key": "Cross-Origin-Embedder-Policy",
+          "value": "credentialless"
+        }
+      ]
+    }
   ]
 }

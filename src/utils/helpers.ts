@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 // Générer un code de réunion aléatoire (format Google Meet: xxx-yyyy-zzz)
 export function generateRoomCode(): string {
   const chars = 'abcdefghijklmnopqrstuvwxyz';
@@ -76,4 +79,16 @@ export function getRecentRooms(): Array<{ code: string; timestamp: number }> {
   } catch {
     return [];
   }
+}
+
+// Supprimer une réunion récente
+export function removeRecentRoom(code: string) {
+  const recent = getRecentRooms();
+  const updated = recent.filter(r => r.code !== code);
+  localStorage.setItem('recent-rooms', JSON.stringify(updated));
+}
+
+// Supprimer toutes les réunions récentes
+export function clearRecentRooms() {
+  localStorage.removeItem('recent-rooms');
 }

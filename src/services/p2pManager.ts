@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import Peer, { DataConnection, MediaConnection } from 'peerjs';
 
 export interface PeerInfo {
@@ -116,6 +119,7 @@ export class P2PManager {
   private onAudioLevelCallback?: (peerId: string, level: number) => void;
   private onConnectionQualityCallback?: (peerId: string, quality: ConnectionQuality) => void;
   private onICEStateChangeCallback?: (peerId: string, state: ICEConnectionState) => void;
+  private onTrackUnmutedCallback?: (peerId: string, stream: MediaStream) => void;
 
   constructor() {
     log('INIT', 'P2PManager instance created');
@@ -1069,6 +1073,19 @@ export class P2PManager {
             // When track unmutes, try to process stream again
             if (track.kind === 'video') {
               processStreamIfReady();
+              
+              // CRITICAL FIX: Notify that video track is unmuted
+              // This is needed when replaceTrack() is used - the track is replaced
+              // but the stream reference in React state is not updated
+              // By calling onTrackUnmutedCallback, we force React to update the participant's stream
+              if (receivedStream) {
+                log('MEDIA', '🔄 Notifying track unmuted callback (outgoing call)', {
+                  peerId,
+                  streamId: receivedStream.id,
+                  videoTracks: receivedStream.getVideoTracks().length
+                });
+                this.onTrackUnmutedCallback?.(peerId, receivedStream);
+              }
             }
           };
           
@@ -1736,6 +1753,19 @@ export class P2PManager {
               // When track unmutes, try to process stream again
               if (track.kind === 'video') {
                 processStreamIfReady();
+                
+                // CRITICAL FIX: Notify that video track is unmuted
+                // This is needed when replaceTrack() is used - the track is replaced
+                // but the stream reference in React state is not updated
+                // By calling onTrackUnmutedCallback, we force React to update the participant's stream
+                if (receivedStream) {
+                  log('MEDIA', '🔄 Notifying track unmuted callback (incoming call)', {
+                    peerId,
+                    streamId: receivedStream.id,
+                    videoTracks: receivedStream.getVideoTracks().length
+                  });
+                  this.onTrackUnmutedCallback?.(peerId, receivedStream);
+                }
               }
             };
             
@@ -2320,9 +2350,19 @@ export class P2PManager {
     const audioTrack = stream.getAudioTracks()[0];
     const senders = pc.getSenders();
     const transceivers = pc.getTransceivers();
+    
+    // CRITICAL DIAGNOSTIC: Determine if this is an incoming or outgoing connection
+    // For incoming calls (participant answering host's call), the local description type is 'answer'
+    // For outgoing calls (host calling participant), the local description type is 'offer'
+    const isIncomingConnection = pc.localDescription?.type === 'answer';
+    const isOutgoingConnection = pc.localDescription?.type === 'offer';
 
     log('STREAM', '🔄🔄🔄 updateMediaConnectionTracks CALLED 🔄🔄🔄', {
       peerId,
+      isIncomingConnection,
+      isOutgoingConnection,
+      localDescriptionType: pc.localDescription?.type,
+      remoteDescriptionType: pc.remoteDescription?.type,
       hasVideo: !!videoTrack,
       hasAudio: !!audioTrack,
       videoTrackId: videoTrack?.id,
@@ -2351,6 +2391,15 @@ export class P2PManager {
         receiverTrackKind: t.receiver.track?.kind || 'null'
       }))
     });
+    
+    // CRITICAL DIAGNOSTIC: For incoming connections, check if we have proper senders
+    if (isIncomingConnection && senders.length === 0) {
+      log('STREAM', '⚠️⚠️⚠️ INCOMING CONNECTION HAS NO SENDERS! ⚠️⚠️⚠️', {
+        peerId,
+        transceiverCount: transceivers.length,
+        transceiverDirections: transceivers.map(t => t.direction)
+      });
+    }
 
     // If no senders exist yet, add tracks
     if (senders.length === 0) {
@@ -3463,6 +3512,15 @@ export class P2PManager {
    */
   onConnectionQuality(callback: (peerId: string, quality: ConnectionQuality) => void) {
     this.onConnectionQualityCallback = callback;
+  }
+
+  /**
+   * Set callback for track unmuted events
+   * This is called when a video track is unmuted (data starts flowing again)
+   * Useful for updating React state when replaceTrack() is used
+   */
+  onTrackUnmuted(callback: (peerId: string, stream: MediaStream) => void) {
+    this.onTrackUnmutedCallback = callback;
   }
 
   /**

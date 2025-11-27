@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useState, useEffect } from 'react';
 import { VideoTile } from './VideoTile';
 import { Participant } from '@/types';

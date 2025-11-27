@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Icon, Avatar } from '@/components/ui';
@@ -375,11 +378,17 @@ export function PreJoinPage() {
 
       // Extraire le hostPeerId du hash pour Quick Fix P2P
       // Le hash contient le peer ID de l'hôte (format: #peer_id=xxx)
+      // CRITICAL FIX: If no hash, use deterministic host ID based on room code
       const hash = window.location.hash;
       let hostPeerId: string | undefined = undefined;
       if (hash.startsWith('#peer_id=')) {
         hostPeerId = hash.replace('#peer_id=', '');
         console.log('[PreJoinPage] Using hostPeerId from URL hash:', hostPeerId);
+      } else if (code && !isHost) {
+        // No hash provided - use deterministic host ID
+        // This allows joining with just the room code
+        hostPeerId = `host-${code}`;
+        console.log('[PreJoinPage] No hash provided, using deterministic hostPeerId:', hostPeerId);
       }
       
       // Passer les infos à la page de réunion

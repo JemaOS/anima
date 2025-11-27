@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 const CACHE_NAME = 'meetclone-v1';
 const STATIC_CACHE = 'meetclone-static-v1';
 const DYNAMIC_CACHE = 'meetclone-dynamic-v1';

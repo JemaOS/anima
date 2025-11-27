@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { Avatar, Icon } from '@/components/ui';
 import { Participant, ConnectionQuality } from '@/types';
@@ -481,19 +484,60 @@ export function VideoTile({
       <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 sm:p-2 md:p-3 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 sm:gap-2 min-w-0">
-            {/* Audio level indicator bar - hidden on very small tiles */}
-            {!isLocal && participant.audioEnabled && size !== 'small' && (
-              <div className="w-1 h-3 sm:h-4 bg-gray-600 rounded-full overflow-hidden hidden sm:block">
-                <div
-                  className="w-full bg-green-500 rounded-full transition-all duration-75"
-                  style={{
-                    height: `${Math.min((participant.audioLevel || 0) * 100, 100)}%`,
-                    transform: 'translateY(100%)',
-                    marginTop: `-${Math.min((participant.audioLevel || 0) * 100, 100)}%`
-                  }}
-                />
+            {/* Audio activity indicator - animated mic icon like Google Meet */}
+            {participant.audioEnabled && (
+              <div className="relative flex items-center justify-center">
+                {/* Mic icon with animated rings when speaking */}
+                <div className={`relative p-0.5 sm:p-1 rounded-full transition-all duration-150 ${
+                  isSpeaking ? 'bg-green-500/90' : 'bg-neutral-600/80'
+                }`}>
+                  <Icon name="mic" size={10} className="text-white sm:hidden" />
+                  <Icon name="mic" size={14} className="text-white hidden sm:block" />
+                  
+                  {/* Animated sound waves when speaking */}
+                  {isSpeaking && (
+                    <>
+                      {/* Inner ring */}
+                      <span
+                        className="absolute inset-0 rounded-full border border-green-400 animate-ping"
+                        style={{
+                          animationDuration: '1s',
+                          opacity: Math.min((participant.audioLevel || 0) * 2, 0.6)
+                        }}
+                      />
+                      {/* Outer ring */}
+                      <span
+                        className="absolute -inset-0.5 rounded-full border border-green-300 animate-ping"
+                        style={{
+                          animationDuration: '1.2s',
+                          animationDelay: '0.1s',
+                          opacity: Math.min((participant.audioLevel || 0) * 1.5, 0.4)
+                        }}
+                      />
+                    </>
+                  )}
+                </div>
+                
+                {/* Audio level bars (Google Meet style) - only on larger screens */}
+                {isSpeaking && size !== 'small' && (
+                  <div className="hidden sm:flex items-end gap-0.5 ml-1 h-3">
+                    {[0.15, 0.25, 0.35].map((threshold, i) => (
+                      <div
+                        key={i}
+                        className={`w-0.5 rounded-full transition-all duration-75 ${
+                          (participant.audioLevel || 0) > threshold ? 'bg-green-400' : 'bg-gray-500'
+                        }`}
+                        style={{
+                          height: `${(i + 1) * 4}px`,
+                          opacity: (participant.audioLevel || 0) > threshold ? 1 : 0.4
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )}
+            
             <span className="text-white text-[10px] sm:text-xs md:text-sm font-medium truncate max-w-[60px] sm:max-w-[100px] md:max-w-none">
               {participant.name} {isLocal && '(Vous)'}
             </span>

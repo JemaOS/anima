@@ -5,21 +5,46 @@
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
   "orientation": "any",
-  "theme_color": "#1a73e8",
-  "background_color": "#0F0F0F",
+  "theme_color": "#007AFF",
+  "background_color": "#000000",
+  "permissions_policy": {
+    "camera": ["self"],
+    "microphone": ["self"],
+    "display-capture": ["self"],
+    "geolocation": []
+  },
   "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
     {
       "src": "/icons/icon-192x192.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ],
   "screenshots": [

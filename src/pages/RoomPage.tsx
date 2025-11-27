@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useState, useEffect, useRef, useReducer, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { VideoGrid, ControlBar, SidePanel } from '@/components/room';
@@ -539,6 +542,48 @@ export function RoomPage() {
         manager.addAudioAnalyser(peerId, stream);
       });
 
+      // CRITICAL FIX: Handle track unmuted events
+      // This is called when a video track is unmuted after replaceTrack()
+      // We need to force React to update the participant's stream reference
+      manager.onTrackUnmuted((peerId, stream) => {
+        console.log('[RoomPage] 🔄 Track unmuted callback received', {
+          peerId,
+          streamId: stream.id,
+          videoTracks: stream.getVideoTracks().length,
+          audioTracks: stream.getAudioTracks().length
+        });
+        
+        // Force update the participant's stream by creating a new MediaStream reference
+        // This ensures React detects the change and re-renders the VideoTile
+        const newStreamRef = new MediaStream(stream.getTracks());
+        
+        console.log('[RoomPage] 🔄 Creating new stream reference for React update', {
+          peerId,
+          oldStreamId: stream.id,
+          newStreamId: newStreamRef.id,
+          videoTracks: newStreamRef.getVideoTracks().map(t => ({
+            id: t.id,
+            enabled: t.enabled,
+            muted: t.muted,
+            readyState: t.readyState
+          }))
+        });
+        
+        // Update the participant's stream with the new reference
+        dispatchParticipants({ type: 'SET_STREAM', payload: { id: peerId, stream: newStreamRef } });
+        
+        // Also ensure videoEnabled is set to true since we're receiving video data
+        dispatchParticipants({
+          type: 'UPDATE_PARTICIPANT',
+          payload: {
+            id: peerId,
+            updates: { videoEnabled: true }
+          }
+        });
+        
+        console.log('[RoomPage] ✅ Participant stream and videoEnabled updated', { peerId });
+      });
+
       manager.onConnectionStateChange((peerId, connectionState) => {
         // Update overall connection status based on peer states
         if (connectionState === ConnectionState.CONNECTED) {
@@ -610,10 +655,19 @@ export function RoomPage() {
       }
 
       // 4. Initialize peer AFTER media capture
-      // Use random peer IDs for everyone - the URL hash system handles sharing the host's ID
-      // This avoids conflicts when rejoining (deterministic IDs can cause "unavailable-id" errors)
-      const peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`;
-      console.log('[RoomPage] 🔌 Using random peer ID', { peerId, isHost: state.isHost });
+      // CRITICAL FIX: Use deterministic peer ID for HOST so participants can find them
+      // without needing the full URL with hash. Participants use random IDs.
+      let peerId: string;
+      if (state.isHost) {
+        // Host uses deterministic ID based on room code
+        // This allows participants to connect using just the room code
+        peerId = `host-${code}`;
+        console.log('[RoomPage] 🔌 HOST: Using deterministic peer ID', { peerId, code });
+      } else {
+        // Participants use random IDs to avoid conflicts
+        peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`;
+        console.log('[RoomPage] 🔌 PARTICIPANT: Using random peer ID', { peerId });
+      }
       
       try {
         console.log('[RoomPage] 🔌 Initializing peer...', { peerId, isHost: state.isHost });
@@ -652,18 +706,26 @@ export function RoomPage() {
           const newUrl = `${window.location.pathname}${window.location.search}#peer_id=${id}`;
           window.history.replaceState(null, '', newUrl);
           console.log('[RoomPage] 🔗 Host URL updated with peer ID', { url: newUrl, peerId: id });
-        } else if (state.hostPeerId) {
+        } else {
+          // CRITICAL FIX: If no hostPeerId provided, use deterministic host ID
+          const hostPeerIdToUse = state.hostPeerId || `host-${code}`;
+          console.log('[RoomPage] 🤝 Using host peer ID', {
+            provided: state.hostPeerId,
+            calculated: `host-${code}`,
+            using: hostPeerIdToUse
+          });
+          
           // Small delay to ensure everything is ready
           await new Promise(resolve => setTimeout(resolve, 100));
           console.log('[RoomPage] 🤝 Joining room as participant', {
-            hostPeerId: state.hostPeerId,
+            hostPeerId: hostPeerIdToUse,
             hasStream: !!capturedStream,
             streamTracks: capturedStream?.getTracks().length || 0
           });
-          const joined = await manager.joinRoom(state.hostPeerId, state.userName, capturedStream);
+          const joined = await manager.joinRoom(hostPeerIdToUse, state.userName, capturedStream);
           console.log('[RoomPage] 🤝 Join room result', {
             joined,
-            hostPeerId: state.hostPeerId,
+            hostPeerId: hostPeerIdToUse,
             streamWasProvided: !!capturedStream
           });
         }
@@ -741,6 +803,8 @@ export function RoomPage() {
             updates: {
               audioEnabled: message.data.audioEnabled,
               videoEnabled: message.data.videoEnabled,
+              // Handle screen sharing state if present
+              ...(message.data.screenSharing !== undefined && { screenSharing: message.data.screenSharing }),
             }
           }
         });
@@ -1059,36 +1123,191 @@ export function RoomPage() {
   }, [facingMode, videoEnabled]);
 
   // Screen share - memoized
+  // CRITICAL FIX: Properly handle screen sharing by:
+  // 1. Creating a combined stream with screen video + local audio
+  // 2. Notifying peers about screen sharing state
+  // 3. Properly restoring camera when screen share ends
   const startScreenShare = useCallback(async () => {
+    // Check if getDisplayMedia is supported
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      console.log('[startScreenShare] ❌ getDisplayMedia not supported');
+      setMediaError('Partage d\'écran non supporté sur cet appareil');
+      setTimeout(() => setMediaError(null), 3000);
+      return;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
+      console.log('[startScreenShare] 🖥️ Starting screen share...');
+      
+      const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
-        audio: true,
+        audio: true, // Try to capture system audio
       });
 
-      setScreenStream(stream);
-      p2pManager.current?.updateLocalStream(stream);
+      console.log('[startScreenShare] ✅ Got display stream', {
+        videoTracks: displayStream.getVideoTracks().length,
+        audioTracks: displayStream.getAudioTracks().length,
+        videoTrackLabel: displayStream.getVideoTracks()[0]?.label
+      });
 
-      const screenTrack = stream.getVideoTracks()[0];
-      screenTrack.onended = () => stopScreenShare();
-    } catch (_error) {
-      // Screen share error handled silently
+      // Create a combined stream with screen video + local audio (from mic)
+      const combinedStream = new MediaStream();
+      
+      // Add screen video track
+      const screenVideoTrack = displayStream.getVideoTracks()[0];
+      if (screenVideoTrack) {
+        combinedStream.addTrack(screenVideoTrack);
+        console.log('[startScreenShare] Added screen video track', {
+          trackId: screenVideoTrack.id,
+          label: screenVideoTrack.label
+        });
+      }
+      
+      // Add local audio track (from microphone) to keep voice communication
+      const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
+      if (localAudioTrack) {
+        combinedStream.addTrack(localAudioTrack);
+        console.log('[startScreenShare] Added local audio track', {
+          trackId: localAudioTrack.id,
+          enabled: localAudioTrack.enabled
+        });
+      }
+      
+      // Optionally add system audio if available
+      const systemAudioTrack = displayStream.getAudioTracks()[0];
+      if (systemAudioTrack && !localAudioTrack) {
+        combinedStream.addTrack(systemAudioTrack);
+        console.log('[startScreenShare] Added system audio track', {
+          trackId: systemAudioTrack.id
+        });
+      }
+
+      setScreenStream(displayStream); // Keep reference to stop later
+      
+      // Update P2P manager with the combined stream
+      console.log('[startScreenShare] 📤 Updating P2P manager with screen share stream');
+      p2pManager.current?.updateLocalStream(combinedStream);
+      
+      // Notify peers about screen sharing state
+      p2pManager.current?.broadcast({
+        type: 'media-state',
+        data: {
+          audioEnabled,
+          videoEnabled: true,
+          screenSharing: true
+        },
+        senderId: myId,
+        timestamp: Date.now(),
+      } as P2PMessage);
+
+      // Handle when user stops sharing via browser UI
+      screenVideoTrack.onended = () => {
+        console.log('[startScreenShare] 🛑 Screen share ended by user');
+        stopScreenShare();
+      };
+      
+      console.log('[startScreenShare] ✅ Screen share started successfully');
+    } catch (error: any) {
+      console.error('[startScreenShare] ❌ Error:', error);
+      // Don't show error for user cancellation (NotAllowedError when user clicks cancel)
+      // or AbortError (user dismissed the dialog)
+      if (error.name === 'NotAllowedError' || error.name === 'AbortError') {
+        // User cancelled - no error message needed
+        console.log('[startScreenShare] User cancelled screen share');
+        return;
+      }
+      // For other errors, show a helpful message
+      if (error.name === 'NotSupportedError' || error.name === 'TypeError') {
+        setMediaError('Partage d\'écran non supporté sur cet appareil');
+      } else {
+        setMediaError('Erreur lors du partage d\'écran');
+      }
+      setTimeout(() => setMediaError(null), 3000);
     }
-  }, []);
+  }, [myId, audioEnabled]);
 
   const stopScreenShare = useCallback(() => {
+    console.log('[stopScreenShare] 🛑 Stopping screen share...');
+    
     setScreenStream(prev => {
       if (prev) {
-        prev.getTracks().forEach(track => track.stop());
+        prev.getTracks().forEach(track => {
+          console.log('[stopScreenShare] Stopping track', {
+            kind: track.kind,
+            label: track.label
+          });
+          track.stop();
+        });
       }
       return null;
     });
 
+    // Restore camera stream
     const stream = localStreamRef.current;
     if (stream) {
-      p2pManager.current?.updateLocalStream(stream);
+      console.log('[stopScreenShare] 📹 Restoring camera stream', {
+        videoTracks: stream.getVideoTracks().length,
+        audioTracks: stream.getAudioTracks().length
+      });
+      
+      // If camera was enabled before, we need to get a fresh video track
+      // because the old one might have been replaced
+      if (videoEnabled) {
+        navigator.mediaDevices.getUserMedia({
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: facingMode
+          }
+        }).then(freshStream => {
+          const freshVideoTrack = freshStream.getVideoTracks()[0];
+          if (freshVideoTrack && stream) {
+            // Remove old video track if any
+            const oldVideoTrack = stream.getVideoTracks()[0];
+            if (oldVideoTrack) {
+              stream.removeTrack(oldVideoTrack);
+              if (oldVideoTrack.readyState === 'live') {
+                oldVideoTrack.stop();
+              }
+            }
+            // Add fresh video track
+            stream.addTrack(freshVideoTrack);
+            
+            // Update P2P manager
+            p2pManager.current?.updateLocalStream(stream);
+            
+            // Update local stream state to trigger re-render
+            const newStreamRef = new MediaStream(stream.getTracks());
+            localStreamRef.current = newStreamRef;
+            setLocalStream(newStreamRef);
+            
+            console.log('[stopScreenShare] ✅ Camera restored with fresh track');
+          }
+        }).catch(err => {
+          console.error('[stopScreenShare] Error getting fresh camera:', err);
+          // Fallback: just update with existing stream
+          p2pManager.current?.updateLocalStream(stream);
+        });
+      } else {
+        // Camera was off, just restore the stream without video
+        p2pManager.current?.updateLocalStream(stream);
+      }
+      
+      // Notify peers that screen sharing stopped
+      p2pManager.current?.broadcast({
+        type: 'media-state',
+        data: {
+          audioEnabled,
+          videoEnabled,
+          screenSharing: false
+        },
+        senderId: myId,
+        timestamp: Date.now(),
+      } as P2PMessage);
     }
-  }, []);
+    
+    console.log('[stopScreenShare] ✅ Screen share stopped');
+  }, [myId, audioEnabled, videoEnabled, facingMode]);
 
   // Chat - memoized
   const sendChatMessage = useCallback((content: string) => {
@@ -1248,7 +1467,7 @@ export function RoomPage() {
       </header>
 
       {/* Grille vidéo */}
-      <main className="flex-1 overflow-hidden pt-14 pb-20 sm:pt-16 sm:pb-24">
+      <main className="flex-1 overflow-hidden pt-14 pb-16 sm:pt-16 sm:pb-20">
         <VideoGrid
           participants={participants}
           localParticipant={localParticipant}

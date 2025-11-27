@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 // Connection quality type for network indicators
 export type ConnectionQuality = 'good' | 'medium' | 'poor';
 

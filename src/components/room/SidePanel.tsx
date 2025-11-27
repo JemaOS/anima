@@ -1,3 +1,6 @@
+// Copyright (c) 2025 Jema Technology.
+// Distributed under the license specified in the root directory of this project.
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Icon, Avatar } from '@/components/ui';
 import { ChatMessage, Participant } from '@/types';
@@ -159,13 +162,17 @@ export function SidePanel({
   if (!isOpen) return null;
 
   return (
-    <div 
+    <div
       className={`
-        fixed top-0 right-0 h-full w-full md:w-[360px] bg-neutral-800 
-        shadow-modal z-40 flex flex-col
+        fixed top-0 right-0 w-full md:w-[360px] bg-neutral-800
+        shadow-modal z-[60] flex flex-col
         transform transition-transform duration-250 ease-enter
         ${isOpen ? 'translate-x-0' : 'translate-x-full'}
       `}
+      style={{
+        height: '100%',
+        maxHeight: '100dvh',
+      }}
     >
       {/* Header */}
       <div className="h-14 px-5 flex items-center justify-between border-b border-neutral-700">
@@ -378,23 +385,29 @@ export function SidePanel({
         )}
       </div>
 
-      {/* Input chat */}
+      {/* Input chat - avec padding pour éviter la barre de contrôle sur mobile */}
       {type === 'chat' && (
-        <form onSubmit={handleSendMessage} className="p-4 border-t border-neutral-700">
+        <form
+          onSubmit={handleSendMessage}
+          className="p-3 sm:p-4 border-t border-neutral-700 bg-neutral-800"
+          style={{
+            paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))',
+          }}
+        >
           <div className="flex items-center gap-2">
             <input
               type="text"
               value={messageInput}
               onChange={(e) => setMessageInput(e.target.value)}
               placeholder="Envoyer un message..."
-              className="flex-1 h-10 px-4 bg-neutral-700 border-none rounded-full text-sm text-white placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
+              className="flex-1 min-w-0 h-10 px-3 sm:px-4 bg-neutral-700 border-none rounded-full text-sm text-white placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
             />
             <button
               type="submit"
               disabled={!messageInput.trim()}
-              className="w-10 h-10 rounded-full bg-primary-500 hover:bg-primary-400 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white transition-colors"
+              className="w-10 h-10 shrink-0 rounded-full bg-primary-500 hover:bg-primary-400 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center text-white transition-colors"
             >
-              <Icon name="send" size={20} />
+              <Icon name="send" size={18} />
             </button>
           </div>
         </form>
