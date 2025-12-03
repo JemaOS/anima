@@ -4,10 +4,12 @@
 import React, { useState, useEffect, useRef, useReducer, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
 import { VideoGrid, ControlBar, SidePanel } from '@/components/room';
+import { VideoStyle, VIDEO_STYLES, getSavedVideoStyle, saveVideoStyle } from '@/components/room/SidePanel';
 import { Icon } from '@/components/ui';
 import { Participant, ChatMessage, ConnectionQuality } from '@/types';
 import { generateId, formatDuration } from '@/utils/helpers';
 import { P2PManager, type PeerInfo, type P2PMessage, ConnectionState, ICEConnectionState } from '@/services/p2pManager';
+import { getOptimalVideoConstraints, getOptimalAudioConstraints, VIDEO_PRESETS, getDeviceType, VideoQualityLevel, getSavedVideoQuality, saveVideoQuality } from '@/utils/videoConstraints';
 
 interface LocationState {
   userName: string;
@@ -27,24 +29,9 @@ const isMobileDevice = () => {
 };
 
 // Adaptive video constraints for better performance
-// Using less restrictive constraints to avoid excessive zoom on mobile
+// Now using the centralized utility for optimal constraints
 const getVideoConstraints = (facingMode: 'user' | 'environment' = 'user', useExact: boolean = false): MediaTrackConstraints => {
-  // For Android, use simpler constraints to avoid issues
-  if (isAndroid()) {
-    return {
-      facingMode: useExact ? { exact: facingMode } : facingMode,
-      width: { ideal: 640 },
-      height: { ideal: 480 },
-    };
-  }
-  
-  return {
-    width: { ideal: 640 },
-    height: { ideal: 480 },
-    frameRate: { min: 15, ideal: 24, max: 30 },
-    facingMode: useExact ? { exact: facingMode } : facingMode,
-    aspectRatio: { ideal: 4/3 }
-  };
+  return getOptimalVideoConstraints(facingMode, useExact);
 };
 
 // Get camera stream with facingMode fallback support
@@ -52,15 +39,13 @@ const getCameraStreamWithFallback = async (
   facingMode: 'user' | 'environment',
   audioConstraints: MediaTrackConstraints
 ): Promise<MediaStream> => {
+  const optimalConstraints = getOptimalVideoConstraints(facingMode, true);
+  
   // Try with exact facingMode first (most reliable for back camera)
   try {
     console.log(`Trying camera with facingMode: { exact: '${facingMode}' }`);
     const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { exact: facingMode },
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-      },
+      video: optimalConstraints,
       audio: audioConstraints,
     });
     return stream;
@@ -69,13 +54,10 @@ const getCameraStreamWithFallback = async (
     
     // Fallback: try with ideal instead of exact
     try {
+      const idealConstraints = getOptimalVideoConstraints(facingMode, false);
       console.log(`Trying camera with facingMode: { ideal: '${facingMode}' }`);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: { ideal: facingMode },
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-        },
+        video: idealConstraints,
         audio: audioConstraints,
       });
       return stream;
@@ -83,13 +65,10 @@ const getCameraStreamWithFallback = async (
       console.log(`ideal ${facingMode} failed:`, idealError);
       
       // Last fallback: try without exact constraint
+      const fallbackConstraints = getOptimalVideoConstraints(facingMode, false);
       console.log(`Trying camera with facingMode: '${facingMode}'`);
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: facingMode,
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-        },
+        video: fallbackConstraints,
         audio: audioConstraints,
       });
       return stream;
@@ -249,6 +228,12 @@ export function RoomPage() {
   // Current device IDs
   const [currentAudioDevice, setCurrentAudioDevice] = useState<string>('');
   const [currentVideoDevice, setCurrentVideoDevice] = useState<string>('');
+  
+  // Video quality state - load from localStorage on mount
+  const [videoQuality, setVideoQuality] = useState<VideoQualityLevel>(() => getSavedVideoQuality());
+  
+  // Video style state - load from localStorage on mount
+  const [videoStyle, setVideoStyle] = useState<VideoStyle>(() => getSavedVideoStyle());
 
   // Capture local media - extracted for reuse with adaptive constraints
   // Includes retry logic for Android devices
@@ -258,24 +243,27 @@ export function RoomPage() {
     audioDeviceId?: string,
     videoDeviceId?: string,
     cameraFacingMode: 'user' | 'environment' = 'user',
-    retryCount: number = 0
+    retryCount: number = 0,
+    qualityOverride?: VideoQualityLevel
   ): Promise<MediaStream | null> => {
     const maxRetries = isAndroid() ? 3 : 1;
     
+    // Use the provided quality override or the current videoQuality state
+    const effectiveQuality = qualityOverride ?? videoQuality;
+    
     try {
+      // Use optimal audio constraints from utility
       const audioConstraints: MediaTrackConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
+        ...getOptimalAudioConstraints(),
       };
       
       if (audioDeviceId) {
         audioConstraints.deviceId = { exact: audioDeviceId };
       }
 
-      // Get video constraints with the specified facing mode
+      // Get video constraints with the specified facing mode and quality using utility
       const videoConstraints: MediaTrackConstraints = {
-        ...getVideoConstraints(cameraFacingMode),
+        ...getOptimalVideoConstraints(cameraFacingMode, false, undefined, effectiveQuality),
       };
       
       // If a specific device is selected, use it instead of facingMode
@@ -330,9 +318,7 @@ export function RoomPage() {
         setTimeout(() => setMediaError(null), 2000);
         try {
           const fallbackAudioConstraints: MediaTrackConstraints = {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true,
+            ...getOptimalAudioConstraints(),
           };
           if (audioDeviceId) {
             fallbackAudioConstraints.deviceId = { exact: audioDeviceId };
@@ -367,7 +353,7 @@ export function RoomPage() {
       }
       return null;
     }
-  }, []);
+  }, [videoQuality]);
 
   // Handle device change from settings panel
   const handleDeviceChange = useCallback(async (type: 'audio' | 'video', deviceId: string) => {
@@ -403,12 +389,10 @@ export function RoomPage() {
         }
       } else if (type === 'video') {
         setCurrentVideoDevice(deviceId);
-        // Get new video stream with selected device
+        // Get new video stream with selected device using optimal constraints
+        const videoConstraints = getOptimalVideoConstraints(facingMode, false, deviceId);
         const newStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            deviceId: { exact: deviceId },
-            ...getVideoConstraints(facingMode),
-          },
+          video: videoConstraints,
         });
         
         const newVideoTrack = newStream.getVideoTracks()[0];
@@ -434,7 +418,66 @@ export function RoomPage() {
       setMediaError(`Erreur lors du changement de ${type === 'audio' ? 'microphone' : 'caméra'}`);
       setTimeout(() => setMediaError(null), 3000);
     }
-  }, [audioEnabled, videoEnabled]);
+  }, [audioEnabled, videoEnabled, facingMode]);
+
+  // Handle video quality change from settings panel
+  const handleVideoQualityChange = useCallback(async (quality: VideoQualityLevel) => {
+    console.log('[handleVideoQualityChange] Changing video quality to:', quality);
+    
+    // Update state and save to localStorage
+    setVideoQuality(quality);
+    saveVideoQuality(quality);
+    
+    // If video is currently enabled, apply the new quality immediately
+    if (videoEnabled && localStreamRef.current) {
+      try {
+        // Get new video stream with the selected quality
+        const videoConstraints = getOptimalVideoConstraints(facingMode, false, currentVideoDevice || undefined, quality);
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          video: videoConstraints,
+        });
+        
+        const newVideoTrack = newStream.getVideoTracks()[0];
+        if (newVideoTrack && localStreamRef.current) {
+          // Stop old video track
+          const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+          if (oldVideoTrack) {
+            oldVideoTrack.stop();
+            localStreamRef.current.removeTrack(oldVideoTrack);
+          }
+          
+          // Add new video track
+          localStreamRef.current.addTrack(newVideoTrack);
+          
+          // Update P2P manager with new stream
+          p2pManager.current?.updateLocalStream(localStreamRef.current);
+          
+          // Create new stream reference for React
+          const newStreamRef = new MediaStream(localStreamRef.current.getTracks());
+          localStreamRef.current = newStreamRef;
+          setLocalStream(newStreamRef);
+          
+          console.log('[handleVideoQualityChange] Video quality applied successfully', {
+            quality,
+            width: newVideoTrack.getSettings().width,
+            height: newVideoTrack.getSettings().height,
+            frameRate: newVideoTrack.getSettings().frameRate,
+          });
+        }
+      } catch (error) {
+        console.error('[handleVideoQualityChange] Error applying video quality:', error);
+        setMediaError('Erreur lors du changement de qualité vidéo');
+        setTimeout(() => setMediaError(null), 3000);
+      }
+    }
+  }, [videoEnabled, facingMode, currentVideoDevice]);
+
+  // Handle video style change from settings panel
+  const handleVideoStyleChange = useCallback((style: VideoStyle) => {
+    console.log('[handleVideoStyleChange] Changing video style to:', style);
+    setVideoStyle(style);
+    saveVideoStyle(style);
+  }, []);
 
   // Initialization - proper sequence to avoid race conditions
   // With improved Android support
@@ -873,7 +916,7 @@ export function RoomPage() {
         }
         
         const newStream = await navigator.mediaDevices.getUserMedia({
-          video: getVideoConstraints(facingMode),
+          video: getOptimalVideoConstraints(facingMode, false, undefined, videoQuality),
         });
         
         const newVideoTrack = newStream.getVideoTracks()[0];
@@ -1041,7 +1084,7 @@ export function RoomPage() {
       // DON'T call updateLocalStream here - the track is stopped but still in the stream
       // This preserves the WebRTC sender for when we re-enable
     }
-  }, [myId, audioEnabled, videoEnabled, facingMode]);
+  }, [myId, audioEnabled, videoEnabled, facingMode, videoQuality]);
 
   // Switch camera (front/back) - for mobile devices
   // Uses facingMode with fallback for better compatibility
@@ -1060,33 +1103,28 @@ export function RoomPage() {
       let newStream: MediaStream;
       try {
         console.log(`Switching to ${newFacingMode} camera with exact constraint`);
+        const exactConstraints = getOptimalVideoConstraints(newFacingMode, true);
+        // Remove deviceId if present since we're switching cameras
+        delete exactConstraints.deviceId;
         newStream = await navigator.mediaDevices.getUserMedia({
-          video: {
-            facingMode: { exact: newFacingMode },
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-          },
+          video: exactConstraints,
           audio: false, // Don't request audio again, we already have it
         });
       } catch (exactError) {
         console.log(`exact ${newFacingMode} failed, trying ideal:`, exactError);
         try {
+          const idealConstraints = getOptimalVideoConstraints(newFacingMode, false);
+          delete idealConstraints.deviceId;
           newStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: { ideal: newFacingMode },
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-            },
+            video: idealConstraints,
             audio: false,
           });
         } catch (idealError) {
           console.log(`ideal ${newFacingMode} failed, trying simple:`, idealError);
+          const simpleConstraints = getOptimalVideoConstraints(newFacingMode, false);
+          delete simpleConstraints.deviceId;
           newStream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: newFacingMode,
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-            },
+            video: simpleConstraints,
             audio: false,
           });
         }
@@ -1253,12 +1291,9 @@ export function RoomPage() {
       // If camera was enabled before, we need to get a fresh video track
       // because the old one might have been replaced
       if (videoEnabled) {
+        const cameraConstraints = getOptimalVideoConstraints(facingMode, false);
         navigator.mediaDevices.getUserMedia({
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            facingMode: facingMode
-          }
+          video: cameraConstraints
         }).then(freshStream => {
           const freshVideoTrack = freshStream.getVideoTracks()[0];
           if (freshVideoTrack && stream) {
@@ -1473,6 +1508,7 @@ export function RoomPage() {
           localParticipant={localParticipant}
           pinnedId={pinnedId}
           onPinParticipant={setPinnedId}
+          videoFilter={VIDEO_STYLES[videoStyle].filter}
         />
       </main>
 
@@ -1519,8 +1555,12 @@ export function RoomPage() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onDeviceChange={handleDeviceChange}
+        onVideoQualityChange={handleVideoQualityChange}
+        onVideoStyleChange={handleVideoStyleChange}
         currentAudioDevice={currentAudioDevice}
         currentVideoDevice={currentVideoDevice}
+        currentVideoQuality={videoQuality}
+        currentVideoStyle={videoStyle}
       />
 
       {/* Connexion en cours */}

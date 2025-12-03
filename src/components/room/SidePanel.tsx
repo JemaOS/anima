@@ -4,6 +4,66 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Icon, Avatar } from '@/components/ui';
 import { ChatMessage, Participant } from '@/types';
+import { VideoQualityLevel, getSavedVideoQuality, saveVideoQuality } from '@/utils/videoConstraints';
+
+// Video style types and constants
+export type VideoStyle = 'normal' | 'contrast' | 'bright' | 'warm' | 'cool' | 'bw';
+
+export const VIDEO_STYLES: Record<VideoStyle, { label: string; icon: string; filter: string }> = {
+  normal: {
+    label: 'Normal',
+    icon: 'contrast',
+    filter: 'none',
+  },
+  contrast: {
+    label: 'Contraste',
+    icon: 'exposure',
+    filter: 'contrast(1.2) saturate(1.1)',
+  },
+  bright: {
+    label: 'Lumineux',
+    icon: 'wb-sunny',
+    filter: 'brightness(1.15) contrast(1.05)',
+  },
+  warm: {
+    label: 'Chaud',
+    icon: 'local-fire-department',
+    filter: 'sepia(0.2) saturate(1.2) brightness(1.05)',
+  },
+  cool: {
+    label: 'Froid',
+    icon: 'ac-unit',
+    filter: 'saturate(0.9) hue-rotate(10deg) brightness(1.05)',
+  },
+  bw: {
+    label: 'Noir & Blanc',
+    icon: 'monochrome',
+    filter: 'grayscale(1) contrast(1.1)',
+  },
+};
+
+// Storage key for video style persistence
+const VIDEO_STYLE_STORAGE_KEY = 'anima-video-style';
+
+export const getSavedVideoStyle = (): VideoStyle => {
+  try {
+    const saved = localStorage.getItem(VIDEO_STYLE_STORAGE_KEY);
+    if (saved && saved in VIDEO_STYLES) {
+      return saved as VideoStyle;
+    }
+  } catch (e) {
+    console.warn('Failed to read video style from localStorage:', e);
+  }
+  return 'normal';
+};
+
+export const saveVideoStyle = (style: VideoStyle): void => {
+  try {
+    localStorage.setItem(VIDEO_STYLE_STORAGE_KEY, style);
+  } catch (e) {
+    console.warn('Failed to save video style to localStorage:', e);
+  }
+};
 
 interface MediaDeviceInfo {
   deviceId: string;
@@ -23,8 +83,12 @@ interface SidePanelProps {
   localParticipant?: Participant;
   // Settings
   onDeviceChange?: (type: 'audio' | 'video', deviceId: string) => void;
+  onVideoQualityChange?: (quality: VideoQualityLevel) => void;
+  onVideoStyleChange?: (style: VideoStyle) => void;
   currentAudioDevice?: string;
   currentVideoDevice?: string;
+  currentVideoQuality?: VideoQualityLevel;
+  currentVideoStyle?: VideoStyle;
 }
 
 export function SidePanel({
@@ -36,8 +100,12 @@ export function SidePanel({
   participants,
   localParticipant,
   onDeviceChange,
+  onVideoQualityChange,
+  onVideoStyleChange,
   currentAudioDevice,
   currentVideoDevice,
+  currentVideoQuality,
+  currentVideoStyle,
 }: SidePanelProps) {
   const [messageInput, setMessageInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -47,6 +115,8 @@ export function SidePanel({
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>(currentAudioDevice || '');
   const [selectedVideoDevice, setSelectedVideoDevice] = useState<string>(currentVideoDevice || '');
+  const [selectedVideoQuality, setSelectedVideoQuality] = useState<VideoQualityLevel>(currentVideoQuality || getSavedVideoQuality());
+  const [selectedVideoStyle, setSelectedVideoStyle] = useState<VideoStyle>(currentVideoStyle || getSavedVideoStyle());
   const [linkCopied, setLinkCopied] = useState(false);
   const [devicesLoading, setDevicesLoading] = useState(false);
 
@@ -116,6 +186,20 @@ export function SidePanel({
   const handleVideoDeviceChange = (deviceId: string) => {
     setSelectedVideoDevice(deviceId);
     onDeviceChange?.('video', deviceId);
+  };
+
+  // Handle video quality change
+  const handleVideoQualityChange = (quality: VideoQualityLevel) => {
+    setSelectedVideoQuality(quality);
+    saveVideoQuality(quality);
+    onVideoQualityChange?.(quality);
+  };
+
+  // Handle video style change
+  const handleVideoStyleChange = (style: VideoStyle) => {
+    setSelectedVideoStyle(style);
+    saveVideoStyle(style);
+    onVideoStyleChange?.(style);
   };
 
   // Copy meeting link
@@ -339,6 +423,78 @@ export function SidePanel({
               ) : (
                 <p className="text-sm text-neutral-500 italic">Aucune caméra détectée</p>
               )}
+            </div>
+
+            {/* Video Quality Selection */}
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-medium text-neutral-300">
+                <Icon name="tune" size={18} className="text-neutral-400" />
+                Qualité vidéo
+              </label>
+              <select
+                value={selectedVideoQuality}
+                onChange={(e) => handleVideoQualityChange(e.target.value as VideoQualityLevel)}
+                className="w-full h-10 px-3 bg-neutral-700 text-white text-sm rounded-lg border border-neutral-600 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent cursor-pointer appearance-none"
+                style={{
+                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`,
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: 'right 0.75rem center',
+                  backgroundSize: '1rem',
+                }}
+              >
+                <option value="auto">Auto (recommandé)</option>
+                <option value="low">Basse (économie de données)</option>
+                <option value="medium">Moyenne</option>
+                <option value="high">Haute (720p)</option>
+                <option value="ultra">Ultra (1080p 60fps)</option>
+              </select>
+              <p className="text-xs text-neutral-500">
+                {selectedVideoQuality === 'auto' && 'Qualité adaptée automatiquement à votre appareil'}
+                {selectedVideoQuality === 'low' && '320×240 à 15 fps - Idéal pour connexions lentes'}
+                {selectedVideoQuality === 'medium' && '640×480 à 24 fps - Bon équilibre qualité/performance'}
+                {selectedVideoQuality === 'high' && '1280×720 à 30 fps - Meilleure qualité'}
+                {selectedVideoQuality === 'ultra' && '1920×1080 à 60 fps - Qualité maximale'}
+              </p>
+            </div>
+
+            {/* Divider */}
+            <div className="border-t border-neutral-700" />
+
+            {/* Apparence - Video Styles */}
+            <div className="space-y-3">
+              <h3 className="text-sm font-medium text-neutral-300 flex items-center gap-2">
+                <Icon name="palette" size={18} className="text-neutral-400" />
+                Apparence
+              </h3>
+              
+              {/* Styles */}
+              <div className="space-y-2">
+                <label className="text-xs text-neutral-400 flex items-center gap-2">
+                  Styles
+                  <Icon name="monochrome" size={14} className="text-neutral-500" />
+                </label>
+                <div className="grid grid-cols-6 gap-2">
+                  {(Object.entries(VIDEO_STYLES) as [VideoStyle, typeof VIDEO_STYLES[VideoStyle]][]).map(([key, style]) => (
+                    <button
+                      key={key}
+                      onClick={() => handleVideoStyleChange(key)}
+                      className={`
+                        aspect-square rounded-lg flex items-center justify-center
+                        ${selectedVideoStyle === key
+                          ? 'bg-primary-600 ring-2 ring-primary-400'
+                          : 'bg-neutral-700 hover:bg-neutral-600'}
+                        transition-all
+                      `}
+                      title={style.label}
+                    >
+                      <Icon name={style.icon} size={20} className="text-white" />
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-neutral-500">
+                  {VIDEO_STYLES[selectedVideoStyle].label}
+                </p>
+              </div>
             </div>
 
             {/* Divider */}

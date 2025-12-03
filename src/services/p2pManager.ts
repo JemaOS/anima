@@ -41,7 +41,7 @@ export enum ICEConnectionState {
 export type ConnectionQuality = 'good' | 'medium' | 'poor';
 
 // Video quality levels for adaptive bitrate
-export type VideoQuality = 'low' | 'medium' | 'high';
+export type VideoQuality = 'low' | 'medium' | 'high' | 'ultra';
 
 // Connection statistics interface
 export interface ConnectionStats {
@@ -2642,9 +2642,10 @@ export class P2PManager {
         if (!params.encodings) params.encodings = [{}];
 
         const bitrates: Record<VideoQuality, number> = {
-          low: 150000,    // 150 kbps - for poor connections
-          medium: 500000, // 500 kbps - balanced
-          high: 1500000   // 1.5 Mbps - good connections
+          low: 300000,    // 300 kbps - for poor connections (was 150)
+          medium: 800000, // 800 kbps - balanced (was 500)
+          high: 1500000,  // 1.5 Mbps - good connections (unchanged)
+          ultra: 4000000  // 4 Mbps - for 1080p60
         };
 
         params.encodings[0].maxBitrate = bitrates[quality];

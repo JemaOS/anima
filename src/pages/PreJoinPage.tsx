@@ -5,6 +5,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button, Icon, Avatar } from '@/components/ui';
 import { saveRecentRoom } from '@/utils/helpers';
+import { getOptimalVideoConstraints, getOptimalAudioConstraints, VIDEO_PRESETS, getDeviceType } from '@/utils/videoConstraints';
 
 // Detect if device is Android
 const isAndroid = () => /Android/i.test(navigator.userAgent);
@@ -70,6 +71,7 @@ export function PreJoinPage() {
   const [copied, setCopied] = useState(false);
   const [permissionsGranted, setPermissionsGranted] = useState(false);
   const [isJoining, setIsJoining] = useState(false);
+  const [isFrontCamera, setIsFrontCamera] = useState(true); // Track if using front camera for mirroring
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const isNavigatingRef = useRef(false);
@@ -140,7 +142,11 @@ export function PreJoinPage() {
       const videoDevice = deviceList.find(d => d.kind === 'videoinput');
       const audioDevice = deviceList.find(d => d.kind === 'audioinput');
       
-      if (videoDevice) setSelectedVideoDevice(videoDevice.deviceId);
+      if (videoDevice) {
+        setSelectedVideoDevice(videoDevice.deviceId);
+        // Set initial camera type - default devices are usually front cameras
+        setIsFrontCamera(!isBackCamera(videoDevice));
+      }
       if (audioDevice) setSelectedAudioDevice(audioDevice.deviceId);
     } catch (_err) {
       // Error loading devices handled silently
@@ -149,10 +155,9 @@ export function PreJoinPage() {
 
   // Get camera stream with facingMode support for back camera
   const getCameraStream = async (deviceId: string | null, devices: MediaDeviceInfo[]): Promise<MediaStream | null> => {
+    // Use optimal audio constraints from utility
     const audioConstraints: MediaTrackConstraints = {
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
+      ...getOptimalAudioConstraints(),
     };
     
     if (selectedAudioDevice) {
@@ -168,31 +173,28 @@ export function PreJoinPage() {
       console.log('Selected device:', selectedDevice?.label);
       console.log('Is back camera:', isBack);
       
+      // Get optimal video constraints based on device type and facing mode
+      const facingMode = isBack ? 'environment' : 'user';
+      const optimalVideoConstraints = getOptimalVideoConstraints(facingMode, false, deviceId);
+      
       if (isBack) {
         // For back camera, ALWAYS use deviceId directly - this is the most reliable method
         // facingMode can be unreliable on many Android devices
         try {
           console.log('Trying back camera with deviceId: exact', deviceId);
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              deviceId: { exact: deviceId },
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-            },
+            video: optimalVideoConstraints,
             audio: audioConstraints,
           });
           console.log('Back camera stream obtained successfully');
           return stream;
         } catch (deviceIdError) {
           console.log('deviceId exact failed, trying facingMode environment:', deviceIdError);
-          // Fallback: try facingMode environment
+          // Fallback: try facingMode environment without deviceId
           try {
+            const fallbackConstraints = getOptimalVideoConstraints('environment', true);
             const stream = await navigator.mediaDevices.getUserMedia({
-              video: {
-                facingMode: { exact: 'environment' },
-                width: { ideal: 640 },
-                height: { ideal: 480 },
-              },
+              video: fallbackConstraints,
               audio: audioConstraints,
             });
             console.log('Back camera stream obtained with facingMode environment');
@@ -207,24 +209,17 @@ export function PreJoinPage() {
         try {
           console.log('Trying front camera with deviceId: exact', deviceId);
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              deviceId: { exact: deviceId },
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-            },
+            video: optimalVideoConstraints,
             audio: audioConstraints,
           });
           console.log('Front camera stream obtained successfully');
           return stream;
         } catch (deviceIdError) {
           console.log('deviceId exact failed, trying facingMode user:', deviceIdError);
-          // Fallback to facingMode user
+          // Fallback to facingMode user without deviceId
+          const fallbackConstraints = getOptimalVideoConstraints('user', false);
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: {
-              facingMode: 'user',
-              width: { ideal: 640 },
-              height: { ideal: 480 },
-            },
+            video: fallbackConstraints,
             audio: audioConstraints,
           });
           console.log('Front camera stream obtained with facingMode user');
@@ -233,17 +228,8 @@ export function PreJoinPage() {
       }
     }
     
-    // No specific device selected, use default constraints
-    const videoConstraints: MediaTrackConstraints = isAndroid()
-      ? {
-          facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-        }
-      : {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        };
+    // No specific device selected, use optimal constraints based on device type
+    const videoConstraints = getOptimalVideoConstraints('user', false);
 
     const stream = await navigator.mediaDevices.getUserMedia({
       video: videoConstraints,
@@ -306,26 +292,70 @@ export function PreJoinPage() {
   };
 
   const toggleVideo = async () => {
-    if (stream) {
-      const videoTrack = stream.getVideoTracks()[0];
-      if (videoTrack) {
-        const newEnabled = !videoTrack.enabled;
-        videoTrack.enabled = newEnabled;
-        setVideoEnabled(newEnabled);
+    if (videoEnabled) {
+      // DISABLE: Stop video tracks properly
+      if (stream) {
+        stream.getVideoTracks().forEach(track => track.stop());
+      }
+      setVideoEnabled(false);
+    } else {
+      // ENABLE: Get a fresh video stream since stopped tracks cannot be restarted
+      try {
+        // Use optimal video constraints when re-enabling camera
+        const videoConstraints = selectedVideoDevice
+          ? getOptimalVideoConstraints(isFrontCamera ? 'user' : 'environment', false, selectedVideoDevice)
+          : getOptimalVideoConstraints('user', false);
         
-        // If re-enabling video, ensure the video element is properly connected
-        if (newEnabled && videoRef.current) {
-          // Force reconnect the stream to the video element
-          videoRef.current.srcObject = null;
-          await new Promise(resolve => setTimeout(resolve, 50));
-          videoRef.current.srcObject = stream;
+        // Get existing audio tracks that are still live
+        const existingAudioTracks = stream?.getAudioTracks().filter(t => t.readyState === 'live') || [];
+        
+        // If we have live audio tracks, only request video
+        // Otherwise, request both video and audio
+        let newStream: MediaStream;
+        
+        if (existingAudioTracks.length > 0) {
+          // Only get video, reuse existing audio
+          const newVideoStream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints,
+            audio: false
+          });
+          const newVideoTrack = newVideoStream.getVideoTracks()[0];
+          
+          if (newVideoTrack) {
+            // Combine with existing live audio tracks
+            newStream = new MediaStream([...existingAudioTracks, newVideoTrack]);
+          } else {
+            throw new Error('No video track obtained');
+          }
+        } else {
+          // No live audio tracks, get both video and audio
+          const audioConstraints = selectedAudioDevice
+            ? { ...getOptimalAudioConstraints(), deviceId: { exact: selectedAudioDevice } }
+            : getOptimalAudioConstraints();
+          
+          newStream = await navigator.mediaDevices.getUserMedia({
+            video: videoConstraints,
+            audio: audioConstraints
+          });
+        }
+        
+        // Update the stream state
+        setStream(newStream);
+        
+        // Update the video element
+        if (videoRef.current) {
+          videoRef.current.srcObject = newStream;
           try {
             await videoRef.current.play();
           } catch (e) {
-            // Autoplay might be blocked, but that's okay
-            console.log('Video play after toggle:', e);
+            // Autoplay might be blocked, but that's okay for preview
           }
         }
+        
+        setVideoEnabled(true);
+      } catch (error) {
+        console.error('Failed to re-enable camera:', error);
+        setError('Impossible de réactiver la caméra. Veuillez réessayer.');
       }
     }
   };
@@ -456,7 +486,8 @@ export function PreJoinPage() {
                   autoPlay
                   playsInline
                   muted
-                  className="w-full h-full object-cover transform -scale-x-100"
+                  className="w-full h-full object-cover"
+                  style={{ transform: isFrontCamera ? 'scaleX(-1)' : 'none' }}
                 />
               ) : (
                 <div className="absolute inset-0 flex items-center justify-center">
@@ -520,6 +551,12 @@ export function PreJoinPage() {
                     const newDeviceId = e.target.value;
                     console.log('Camera selection changed to:', newDeviceId);
                     console.log('Previous device:', selectedVideoDevice);
+                    
+                    // Detect if the new camera is front or back for mirroring
+                    const newDevice = videoDevices.find(d => d.deviceId === newDeviceId);
+                    const isBack = newDevice ? isBackCamera(newDevice) : false;
+                    console.log('New camera is back camera:', isBack);
+                    setIsFrontCamera(!isBack);
                     
                     // Stop current stream before switching - this is critical!
                     if (stream) {

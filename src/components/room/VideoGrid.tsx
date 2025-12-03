@@ -10,6 +10,7 @@ interface VideoGridProps {
   localParticipant?: Participant;
   pinnedId?: string | null;
   onPinParticipant?: (id: string | null) => void;
+  videoFilter?: string;
 }
 
 // Custom hook to detect screen size
@@ -50,6 +51,7 @@ export function VideoGrid({
   localParticipant,
   pinnedId,
   onPinParticipant,
+  videoFilter = 'none',
 }: VideoGridProps) {
   const screenSize = useScreenSize();
   
@@ -134,7 +136,7 @@ export function VideoGrid({
 
     if (pinned) {
       return (
-        <div className="h-full flex flex-col gap-2 p-2 sm:p-3 overflow-hidden">
+        <div className="h-full flex flex-col gap-2 p-2 sm:p-3 overflow-hidden" style={{ filter: videoFilter }}>
           {/* Main participant - takes most of the space */}
           <div className="flex-1 min-h-0">
             <VideoTile
@@ -191,7 +193,7 @@ export function VideoGrid({
   // For 2 participants on small screens, use a special layout
   if (count === 2 && (screenSize === 'xs' || screenSize === 'sm')) {
     return (
-      <div className="h-full w-full p-1 sm:p-2 overflow-hidden flex flex-col gap-1 sm:gap-2">
+      <div className="h-full w-full p-1 sm:p-2 overflow-hidden flex flex-col gap-1 sm:gap-2" style={{ filter: videoFilter }}>
         {allParticipants.map((participant, index) => (
           <div
             key={participant.id}
@@ -212,7 +214,7 @@ export function VideoGrid({
   // For 3-4 participants on very small screens, use optimized 2x2 grid
   if (count >= 3 && count <= 4 && screenSize === 'xs') {
     return (
-      <div className="h-full w-full p-1 overflow-hidden">
+      <div className="h-full w-full p-1 overflow-hidden" style={{ filter: videoFilter }}>
         <div className="grid grid-cols-2 grid-rows-2 gap-1 h-full w-full">
           {allParticipants.map((participant, index) => (
             <div
@@ -233,7 +235,7 @@ export function VideoGrid({
   }
 
   return (
-    <div className="h-full w-full p-1 sm:p-2 md:p-3 overflow-hidden">
+    <div className="h-full w-full p-1 sm:p-2 md:p-3 overflow-hidden" style={{ filter: videoFilter }}>
       <div style={getGridStyle()}>
         {allParticipants.map((participant, index) => (
           <div
