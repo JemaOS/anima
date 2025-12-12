@@ -1,50 +1,57 @@
-# React + TypeScript + Vite
+# Anima - Secure Video Conferencing
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Anima is a modern, secure, and privacy-focused video conferencing application built with React, TypeScript, and WebRTC technologies.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react/README.md) uses [Babel](https://babeljs.io/) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- **Secure Video Calls**: End-to-end encryption support.
+- **Real-time Communication**: Low latency video and audio.
+- **Modern UI**: Built with TailwindCSS for a responsive and accessible interface.
+- **Privacy First**: Designed with user privacy as a core principle.
 
-## Expanding the ESLint configuration
+## Tech Stack
 
-If you are developing a production application, we recommend updating the configuration to enable type aware lint rules:
+- **Frontend**: React 18, TypeScript
+- **Build Tool**: Vite
+- **Styling**: TailwindCSS
+- **Testing**: Vitest, React Testing Library, Playwright
 
-- Configure the top-level `parserOptions` property like this:
+## Getting Started
 
-```js
-export default tseslint.config({
-  languageOptions: {
-    // other options...
-    parserOptions: {
-      project: ['./tsconfig.node.json', './tsconfig.app.json'],
-      tsconfigRootDir: import.meta.dirname,
-    },
-  },
-})
-```
+### Prerequisites
 
-- Replace `tseslint.configs.recommended` to `tseslint.configs.recommendedTypeChecked` or `tseslint.configs.strictTypeChecked`
-- Optionally add `...tseslint.configs.stylisticTypeChecked`
-- Install [eslint-plugin-react](https://github.com/jsx-eslint/eslint-plugin-react) and update the config:
+- Node.js (v18 or higher)
+- pnpm (v8 or higher)
 
-```js
-// eslint.config.js
-import react from 'eslint-plugin-react'
+### Installation
 
-export default tseslint.config({
-  // Set the react version
-  settings: { react: { version: '18.3' } },
-  plugins: {
-    // Add the react plugin
-    react,
-  },
-  rules: {
-    // other rules...
-    // Enable its recommended rules
-    ...react.configs.recommended.rules,
-    ...react.configs['jsx-runtime'].rules,
-  },
-})
-```
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/johnkryptochain/anima.git
+   cd anima
+   ```
+
+2. Install dependencies:
+   ```bash
+   pnpm install
+   ```
+
+3. Start the development server:
+   ```bash
+   pnpm dev
+   ```
+
+## Scripts
+
+- `pnpm dev`: Start development server
+- `pnpm build`: Build for production
+- `pnpm test`: Run unit and integration tests
+- `pnpm test:e2e`: Run end-to-end tests
+- `pnpm lint`: Run ESLint
+
+## License
+
+Copyright (c) 2025 Jema Technology.
+
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+See the [LICENSE](LICENSE) file for details.
