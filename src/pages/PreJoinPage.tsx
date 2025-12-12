@@ -663,6 +663,13 @@ export function PreJoinPage() {
           </div>
         </div>
       </main>
+
+      {/* Footer */}
+      <footer className="py-4 text-center border-t border-neutral-800 bg-neutral-900">
+        <p className="text-neutral-500 text-xs">
+          Développé par <a href="https://www.jematechnology.fr/" target="_blank" rel="noopener noreferrer" className="text-primary-400 hover:underline">Jema Technology</a> © 2025 • Open Source & sous licence AGPL
+        </p>
+      </footer>
     </div>
   );
 }

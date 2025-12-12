@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 
 .vercel
+
+playwright-report/
+test-results/
+check_react.js

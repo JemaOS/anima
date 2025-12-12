@@ -185,7 +185,7 @@ export function HomePage() {
       {/* Footer - fixed at bottom */}
       <div className="relative z-10 pb-4 text-center">
         <p className="text-gray-700 text-xs">
-          Max 8 participants • Mesh P2P
+          Développé par <a href="https://www.jematechnology.fr/" target="_blank" rel="noopener noreferrer" className="text-[#8f88ed] hover:underline">Jema Technology</a> © 2025 • Open Source & sous licence AGPL
         </p>
       </div>
     </div>
