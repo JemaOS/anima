@@ -87,8 +87,11 @@ const SpeakingIndicator = memo(function SpeakingIndicator({
 
   return (
     <div
-      className="absolute inset-0 border-4 border-[#757aed] rounded-2xl pointer-events-none z-10 transition-opacity duration-150"
-      style={{ opacity: Math.min(audioLevel * 2, 0.8) }}
+      className="absolute inset-0 rounded-2xl pointer-events-none z-10 transition-opacity duration-150"
+      style={{
+        opacity: Math.min(audioLevel * 2, 0.8),
+        boxShadow: 'inset 0 0 0 4px #757aed',
+      }}
     />
   );
 });

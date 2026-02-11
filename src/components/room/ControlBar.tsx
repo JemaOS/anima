@@ -51,7 +51,7 @@ const ReactionsButton = memo(function ReactionsButton({
   }, [onOpenReactions]);
 
   return (
-    <div className="relative hidden lg:block">
+    <div className="relative hidden lg:block shrink-0 snap-start">
       <button
         onClick={toggleReactions}
         className="w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0 bg-neutral-700/80 hover:bg-neutral-600 text-white"
@@ -84,7 +84,7 @@ const ReactionsButton = memo(function ReactionsButton({
   );
 });
 
-// Bouton individuel mémoïsé
+  // Bouton individuel mémoïsé
 const ControlButton = memo(function ControlButton({
   onClick,
   icon,
@@ -104,10 +104,10 @@ const ControlButton = memo(function ControlButton({
 }) {
   const baseClasses = useMemo(() => {
     if (isCompact) {
-      return "w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
+      return "w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all duration-150 shrink-0 snap-start";
     }
     // Google Meet style: 40px on mobile, 44px on larger screens
-    return "w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
+    return "w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0 snap-start";
   }, [isCompact]);
 
   const variantClasses = useMemo(() => {
@@ -207,11 +207,22 @@ export const ControlBar = memo(function ControlBar({
       <div className={`
         bg-neutral-800/95 backdrop-blur-md
         px-1.5 sm:px-3 py-2 sm:py-2.5
-        shadow-lg flex items-center justify-center gap-0.5 sm:gap-2
+        shadow-lg flex items-center gap-0.5 sm:gap-2
         rounded-t-xl sm:rounded-full
         flex-nowrap overflow-x-auto
         max-w-full
-      `}>
+        scrollbar-hide
+        sm:justify-center
+        justify-start
+        scroll-smooth
+        snap-x snap-mandatory
+        [-webkit-overflow-scrolling:touch]
+      `}
+      style={{
+        scrollbarWidth: 'none',
+        msOverflowStyle: 'none',
+      }}
+      >
         {/* Micro - toujours visible */}
         <ControlButton
           onClick={onToggleAudio}
@@ -288,7 +299,7 @@ export const ControlBar = memo(function ControlBar({
         )}
 
         {/* Séparateur avant quitter */}
-        <div className="w-px h-5 sm:h-6 bg-neutral-600/50 mx-1 sm:mx-1.5 shrink-0" />
+        <div className="w-px h-5 sm:h-6 bg-neutral-600/50 mx-1 sm:mx-1.5 shrink-0 snap-start" />
 
         {/* Quitter - toujours visible */}
         <ControlButton
