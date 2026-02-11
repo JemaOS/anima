@@ -51,13 +51,13 @@ const ReactionsButton = memo(function ReactionsButton({
   }, [onOpenReactions]);
 
   return (
-    <div className="relative hidden sm:block">
+    <div className="relative hidden lg:block">
       <button
         onClick={toggleReactions}
-        className="w-12 h-12 min-[360px]:w-14 min-[360px]:h-14 min-[400px]:w-14 min-[400px]:h-14 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all duration-150 shrink-0 bg-neutral-700/80 hover:bg-neutral-600 text-white"
+        className="w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0 bg-neutral-700/80 hover:bg-neutral-600 text-white"
         title="Réactions"
       >
-        <Icon name="emoji" size={20} />
+        <Icon name="emoji" size={18} />
       </button>
 
       {showReactions && (
@@ -104,10 +104,10 @@ const ControlButton = memo(function ControlButton({
 }) {
   const baseClasses = useMemo(() => {
     if (isCompact) {
-      return "w-10 h-10 min-[360px]:w-11 min-[360px]:h-11 min-[400px]:w-12 min-[400px]:h-12 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
+      return "w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
     }
-    // Larger touch targets for mobile (56px+) like Google Meet
-    return "w-12 h-12 min-[360px]:w-14 min-[360px]:h-14 min-[400px]:w-14 min-[400px]:h-14 sm:w-14 sm:h-14 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
+    // Google Meet style: 40px on mobile, 44px on larger screens
+    return "w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
   }, [isCompact]);
 
   const variantClasses = useMemo(() => {
@@ -137,7 +137,7 @@ const ControlButton = memo(function ControlButton({
       className={`${baseClasses} ${variantClasses}`}
       title={title}
     >
-      <Icon name={icon} size={isCompact ? 18 : 20} />
+      <Icon name={icon} size={isCompact ? 16 : 18} />
     </button>
   );
 });
@@ -166,7 +166,7 @@ export const ControlBar = memo(function ControlBar({
   const isMobile = useMemo(() => isMobileDevice(), []);
 
   // Track screen width for responsive button visibility
-  const [screenWidth, setScreenWidth] = useState(window.innerWidth);
+  const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
 
   useEffect(() => {
     const handleResize = () => setScreenWidth(window.innerWidth);
@@ -174,9 +174,14 @@ export const ControlBar = memo(function ControlBar({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Also track if we need to show more/less buttons based on available space
+  const maxButtonsOnOneLine = Math.floor((screenWidth - 32) / 44); // 44px per button + gap
+  const shouldShowCompact = maxButtonsOnOneLine < 10;
+
   // Determine which buttons to show based on screen size
-  const isUltraSmall = screenWidth < 360;  // iPhone 5s, SE (1st gen)
-  const isSmall = screenWidth < 400;       // Small phones
+  const isUltraSmall = screenWidth < 320;   // Very small phones
+  const isSmall = screenWidth < 375;        // Small phones (iPhone SE, etc)
+  const isMedium = screenWidth < 480;       // Medium phones
   const isMobileScreen = screenWidth < 640; // All mobile devices
 
   // Callbacks mémoïsés
@@ -197,12 +202,13 @@ export const ControlBar = memo(function ControlBar({
   }, [handRaised, onLowerHand, onRaiseHand]);
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)] sm:pb-0 sm:bottom-4 sm:left-1/2 sm:-translate-x-1/2 sm:right-auto">
+    <div className="fixed bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)] sm:pb-4 sm:left-1/2 sm:-translate-x-1/2 sm:right-auto sm:w-auto">
       <div className={`
         bg-neutral-800/95 backdrop-blur-md
-        ${isUltraSmall ? 'rounded-t-xl px-2 py-2' : 'sm:rounded-full px-2 min-[360px]:px-3 min-[400px]:px-4 sm:px-4 py-2 min-[360px]:py-2.5 min-[400px]:py-3'}
-        shadow-lg flex items-center justify-center gap-1 min-[360px]:gap-1.5 min-[400px]:gap-2 sm:gap-3
-        ${isUltraSmall ? 'flex-wrap' : ''}
+        px-2 sm:px-3 py-2 sm:py-2.5
+        shadow-lg flex items-center justify-center gap-1 sm:gap-2
+        rounded-t-xl sm:rounded-full
+        flex-nowrap overflow-x-auto
       `}>
         {/* Micro - toujours visible */}
         <ControlButton
@@ -222,8 +228,8 @@ export const ControlBar = memo(function ControlBar({
           isActive={!videoEnabled}
         />
 
-        {/* Changer de caméra - visible sur mobile quand vidéo active */}
-        {onSwitchCamera && isMobile && videoEnabled && (
+        {/* Changer de caméra - visible sur mobile quand vidéo active, hidden on very small screens */}
+        {onSwitchCamera && isMobile && videoEnabled && !isUltraSmall && (
           <ControlButton
             onClick={onSwitchCamera}
             icon="flip-camera"
@@ -231,27 +237,26 @@ export const ControlBar = memo(function ControlBar({
           />
         )}
 
-        {/* Partage d'écran - visible on all screens */}
-        <ControlButton
-          onClick={handleToggleScreenShare}
-          icon="present-to-all"
-          title={isScreenSharing ? "Arrêter" : "Partager"}
-          variant="primary"
-          isActive={isScreenSharing}
-        />
+        {/* Partage d'écran - visible on all screens except ultra-small */}
+        {!isUltraSmall && (
+          <ControlButton
+            onClick={handleToggleScreenShare}
+            icon="present-to-all"
+            title={isScreenSharing ? "Arrêter" : "Partager"}
+            variant="primary"
+            isActive={isScreenSharing}
+          />
+        )}
 
-        {/* Participants - always visible on mobile */}
+        {/* Participants - always visible */}
         <ControlButton
           onClick={onOpenParticipants}
           icon="people"
           title="Participants"
         />
 
-        {/* Réactions - hidden on small screens */}
-        {!isSmall && <ReactionsButton onOpenReactions={onOpenReactions} />}
-
-        {/* Main levée - hidden on ultra-small */}
-        {!isUltraSmall && (
+        {/* Main levée - hidden on small screens */}
+        {!isSmall && (
           <ControlButton
             onClick={handleToggleHand}
             icon="pan-tool"
@@ -261,6 +266,9 @@ export const ControlBar = memo(function ControlBar({
           />
         )}
 
+        {/* Réactions - hidden on medium and smaller screens */}
+        {!isMedium && <ReactionsButton onOpenReactions={onOpenReactions} />}
+
         {/* Discussion - toujours visible */}
         <ControlButton
           onClick={onOpenChat}
@@ -269,7 +277,7 @@ export const ControlBar = memo(function ControlBar({
         />
 
         {/* Paramètres - only on larger screens */}
-        {!isSmall && onOpenSettings && (
+        {!isMedium && onOpenSettings && (
           <ControlButton
             onClick={onOpenSettings}
             icon="settings"
@@ -278,7 +286,7 @@ export const ControlBar = memo(function ControlBar({
         )}
 
         {/* Séparateur avant quitter */}
-        <div className="w-px h-6 sm:h-8 bg-neutral-600/50 mx-1 sm:mx-2 shrink-0" />
+        <div className="w-px h-5 sm:h-6 bg-neutral-600/50 mx-1 sm:mx-1.5 shrink-0" />
 
         {/* Quitter - toujours visible */}
         <ControlButton

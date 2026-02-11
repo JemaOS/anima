@@ -354,12 +354,7 @@ export function RoomPage() {
 
       try {
         // Use optimal audio constraints from utility
-        const audioConstraints: MediaTrackConstraints = {
-          ...getOptimalAudioConstraints(),
-          // Ensure consistent sample rate to prevent audio distortion
-          sampleRate: 48000,
-          channelCount: 2,
-        };
+        const audioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
 
         if (audioDeviceId) {
           audioConstraints.deviceId = { exact: audioDeviceId };
@@ -452,11 +447,7 @@ export function RoomPage() {
           );
           setTimeout(() => setMediaError(null), 2000);
           try {
-          const fallbackAudioConstraints: MediaTrackConstraints = {
-            ...getOptimalAudioConstraints(),
-            sampleRate: 48000,
-            channelCount: 2,
-          };
+          const fallbackAudioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
           if (audioDeviceId) {
             fallbackAudioConstraints.deviceId = { exact: audioDeviceId };
           }
@@ -536,12 +527,8 @@ export function RoomPage() {
           // Get new audio stream with selected device
           const newStream = await navigator.mediaDevices.getUserMedia({
             audio: {
+              ...getOptimalAudioConstraints(),
               deviceId: { exact: deviceId },
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true,
-              sampleRate: 48000,
-              channelCount: 2,
             },
           });
 
@@ -1435,13 +1422,7 @@ export function RoomPage() {
 
     try {
       // Use the fallback function for better back camera support
-      const audioConstraints: MediaTrackConstraints = {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-        sampleRate: 48000,
-        channelCount: 2,
-      };
+      const audioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
 
       // Try with exact facingMode first, then fallback
       let newStream: MediaStream;

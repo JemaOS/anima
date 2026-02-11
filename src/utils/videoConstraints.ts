@@ -177,12 +177,18 @@ export const getOptimalAudioConstraints = (): MediaTrackConstraints => {
   }
 
   const result: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    channelCount: 2,           // Stereo for better audio quality
-    sampleRate: 48000,         // Standard 48kHz sample rate
+    // Disable audio processing that can cause distortion
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false,
+    // Use mono for clearer voice transmission in P2P
+    channelCount: 1,
+    // Standard sample rate for WebRTC compatibility
+    sampleRate: 48000,
     sampleSize: 16,
+    // Enable high pass filter to reduce low-frequency noise
+    // @ts-ignore - highPassFilter is supported in some browsers
+    highPassFilter: true,
   };
 
   cachedAudioConstraints = result;

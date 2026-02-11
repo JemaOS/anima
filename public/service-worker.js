@@ -168,8 +168,9 @@ self.addEventListener("fetch", (event) => {
             .then((networkResponse) => {
               if (networkResponse.ok) {
                 const cacheName = getCacheForRequest(request);
+                const responseToCache = networkResponse.clone();
                 caches.open(cacheName).then((cache) => {
-                  cache.put(request, networkResponse.clone());
+                  cache.put(request, responseToCache);
                 });
               }
             })
@@ -187,8 +188,9 @@ self.addEventListener("fetch", (event) => {
 
             // Mettre en cache
             const cacheName = getCacheForRequest(request);
+            const responseToCache = networkResponse.clone();
             return caches.open(cacheName).then((cache) => {
-              cache.put(request, networkResponse.clone());
+              cache.put(request, responseToCache);
               return networkResponse;
             });
           })
@@ -211,10 +213,11 @@ self.addEventListener("fetch", (event) => {
             return networkResponse;
           }
 
-          // Mettre en cache en arrière-plan
+          // Mettre en cache en arrière-plan - clone the response before using it
           const cacheName = getCacheForRequest(request);
+          const responseToCache = networkResponse.clone();
           caches.open(cacheName).then((cache) => {
-            cache.put(request, networkResponse.clone());
+            cache.put(request, responseToCache);
           });
 
           return networkResponse;
