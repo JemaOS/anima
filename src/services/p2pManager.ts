@@ -298,22 +298,22 @@ export class P2PManager {
     facingMode: "user" | "environment" = "user"
   ): Promise<MediaStream | null> {
     const constraints = [
-      // Try ideal constraints first
+      // Try Full HD constraints first for mobile
       {
         video: {
-          width: { ideal: 480 },
-          height: { ideal: 360 },
+          width: { ideal: 1920 },
+          height: { ideal: 1080 },
           facingMode: { ideal: facingMode },
-          frameRate: { ideal: 15 },
+          frameRate: { ideal: 30 },
         },
       },
-      // Fallback to lower resolution
+      // Fallback to HD resolution
       {
         video: {
-          width: { ideal: 320 },
-          height: { ideal: 240 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           facingMode: { ideal: facingMode },
-          frameRate: { ideal: 15 },
+          frameRate: { ideal: 30 },
         },
       },
       // Final fallback - any video

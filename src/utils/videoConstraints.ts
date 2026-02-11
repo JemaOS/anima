@@ -8,26 +8,26 @@ export interface VideoQualityPreset {
 
 // Device-based presets (auto-detection)
 export const VIDEO_PRESETS: Record<string, VideoQualityPreset> = {
-  // For mobile devices - more conservative for better compatibility
+  // For mobile devices - Full HD baseline with adaptive quality
   mobile: {
-    width: 480,      // Reduced from 640
-    height: 360,     // Reduced from 480
-    frameRate: 15,   // Reduced from 24 for better compatibility
-    bitrate: 400000, // Reduced from 600 kbps
+    width: 1920,     // Full HD width
+    height: 1080,    // Full HD height
+    frameRate: 30,   // 30 fps for smoother video
+    bitrate: 4000000, // 4 Mbps for Full HD quality
   },
-  // For tablets - higher quality
+  // For tablets - Full HD baseline with adaptive quality
   tablet: {
-    width: 960,
-    height: 720,
-    frameRate: 24,
-    bitrate: 1000000, // 1 Mbps
-  },
-  // For desktop - best quality
-  desktop: {
-    width: 1280,
-    height: 720,
+    width: 1920,     // Full HD width
+    height: 1080,    // Full HD height
     frameRate: 30,
-    bitrate: 1500000, // 1.5 Mbps
+    bitrate: 4000000, // 4 Mbps for Full HD quality
+  },
+  // For desktop - Full HD baseline with adaptive quality
+  desktop: {
+    width: 1920,     // Full HD width
+    height: 1080,    // Full HD height
+    frameRate: 30,
+    bitrate: 4000000, // 4 Mbps for Full HD quality
   },
 };
 
@@ -41,13 +41,13 @@ export const QUALITY_PRESETS: Record<
   low: {
     width: 320,
     height: 240,
-    frameRate: 15,
+    frameRate: 30,
     bitrate: 150000, // 150 kbps
   },
   medium: {
     width: 640,
     height: 480,
-    frameRate: 24,
+    frameRate: 30,
     bitrate: 500000, // 500 kbps
   },
   high: {
@@ -155,7 +155,7 @@ export const getOptimalVideoConstraints = (
       max: preset.height,
     },
     frameRate: {
-      min: 15,
+      min: 30,
       ideal: preset.frameRate,
       max: preset.frameRate,
     },
