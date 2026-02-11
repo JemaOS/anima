@@ -389,7 +389,7 @@ export const VideoTile = memo(function VideoTile({
   const containerClasses = useMemo(
     () =>
       `
-        relative w-full h-full min-h-0 min-w-0 bg-neutral-800 rounded-2xl
+        relative w-full h-full min-h-0 min-w-0 bg-neutral-800 rounded-2xl overflow-hidden
         ${isActive ? "ring-2 ring-primary-500" : ""}
         ${isSpeaking ? "ring-2 ring-[#757aed]" : ""}
       `,
@@ -409,7 +409,7 @@ export const VideoTile = memo(function VideoTile({
 
   const videoClasses = useMemo(
     () =>
-      `w-full h-full object-cover bg-neutral-900 ${shouldMirror ? "transform -scale-x-100" : ""}`,
+      `w-full h-full object-cover bg-neutral-900 rounded-2xl ${shouldMirror ? "transform -scale-x-100" : ""}`,
     [shouldMirror]
   );
 
@@ -428,7 +428,7 @@ export const VideoTile = memo(function VideoTile({
           onCanPlay={handleCanPlay}
         />
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-neutral-800 rounded-2xl">
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-800">
           <Avatar
             name={participant.name}
             id={participant.id}
@@ -475,7 +475,7 @@ export const VideoTile = memo(function VideoTile({
       )}
 
       {/* Bottom overlay with name and mic status */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 sm:p-2 md:p-3 z-10 rounded-b-2xl">
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 sm:p-2 md:p-3 z-10">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 sm:gap-2 min-w-0">
             <AudioIndicator

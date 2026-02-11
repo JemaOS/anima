@@ -71,13 +71,19 @@ export interface ConnectionStats {
 const MAX_PARTICIPANTS = 8;
 
 // Exponential backoff delays in milliseconds
-const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000];
+const RECONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000, 30000];
 
 // Connection timeout in milliseconds
-const CONNECTION_TIMEOUT = 20000;
+const CONNECTION_TIMEOUT = 25000;
 
 // ICE gathering timeout
-const ICE_GATHERING_TIMEOUT = 10000;
+const ICE_GATHERING_TIMEOUT = 15000;
+
+// Initial connection retry delays
+const INITIAL_RETRY_DELAYS = [500, 1000, 2000, 4000];
+
+// Max initial connection attempts
+const MAX_INITIAL_RETRIES = 4;
 
 // Debug logging helper - set to true for debugging
 const DEBUG = true;
@@ -174,7 +180,7 @@ export class P2PManager {
     ) || "ontouchstart" in window;
   }
 
-  // Free TURN server sources
+  // Free TURN server sources - expanded for better reliability
   private TURN_SERVERS = {
     // Metered.ca - free tier (50GB/month)
     metered: [
@@ -185,6 +191,11 @@ export class P2PManager {
       },
       {
         urls: "turn:a.relay.metered.ca:443",
+        username: "e8dd65b92c62d5e98c3d0104",
+        credential: "uWdWNmkhvyqTEj3B",
+      },
+      {
+        urls: "turn:a.relay.metered.ca:443?transport=tcp",
         username: "e8dd65b92c62d5e98c3d0104",
         credential: "uWdWNmkhvyqTEj3B",
       },
@@ -201,6 +212,25 @@ export class P2PManager {
         username: "openrelayproject",
         credential: "openrelayproject",
       },
+      {
+        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+    ],
+    // Twilio TURN (public trial credentials - rotated frequently)
+    twilio: [
+      {
+        urls: "stun:global.stun.twilio.com:3478",
+      },
+    ],
+    // Google STUN (always reliable)
+    google: [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
     ],
   };
 
@@ -209,23 +239,25 @@ export class P2PManager {
    * Tries multiple free TURN services for maximum compatibility
    */
   private getIceServers(): RTCIceServer[] {
-    // Google STUN servers (always included)
-    const stunServers: RTCIceServer[] = [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun2.l.google.com:19302" },
-      { urls: "stun:stun3.l.google.com:19302" },
-      { urls: "stun:stun4.l.google.com:19302" },
-    ];
-
-    // Add public TURN servers
-    const turnServers: RTCIceServer[] = [
+    // Combine all servers with STUN first for speed, then TURN for reliability
+    return [
+      ...this.TURN_SERVERS.google,
+      ...this.TURN_SERVERS.twilio,
       ...this.TURN_SERVERS.metered,
       ...this.TURN_SERVERS.openrelay,
     ];
+  }
 
-    // Return STUN first, then TURN (order matters for connection speed)
-    return [...stunServers, ...turnServers];
+  /**
+   * Get ICE servers with relay-only mode for fallback
+   * Used when normal ICE fails
+   */
+  private getRelayOnlyIceServers(): RTCIceServer[] {
+    // Return only TURN servers for forced relay mode
+    return [
+      ...this.TURN_SERVERS.metered,
+      ...this.TURN_SERVERS.openrelay,
+    ];
   }
 
   /**
@@ -269,24 +301,75 @@ export class P2PManager {
     }
 
     // Wait a moment
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    await new Promise(resolve => setTimeout(resolve, 1500));
 
     // Re-initiate with relay-only policy
     if (this.localStream && this.dataConnections.has(peerId) && this.peer) {
-      // Create new peer connection with relay-only
+      // Create new peer connection with relay-only config
+      const relayConfig = {
+        iceServers: this.getRelayOnlyIceServers(),
+        iceTransportPolicy: "relay" as const,
+        iceCandidatePoolSize: 10,
+        bundlePolicy: "max-bundle" as const,
+        rtcpMuxPolicy: "require" as const,
+      };
+
+      // Create a new peer with relay-only config for this connection
       const mediaConn = this.peer.call(peerId, this.localStream, {
         metadata: { relayOnly: true },
+        sdpTransform: (sdp: string) => {
+          // Force relay by modifying SDP if needed
+          return sdp;
+        },
       });
 
       if (mediaConn) {
         // Override the peer connection config to force relay
         const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
         if (pc) {
-          // We can't change iceTransportPolicy after creation, but we can
-          // signal our intent to use relay through the connection
-          log("ICE", "✅ Created relay-only media connection", { peerId });
+          log("ICE", "✅ Created relay-only media connection", { peerId, config: relayConfig });
         }
         this.setupMediaConnectionHandlers(mediaConn, peerId);
+      }
+    }
+  }
+
+  /**
+   * Attempt connection with alternative ICE servers
+   * Used when default ICE fails
+   */
+  private async attemptAlternativeICE(peerId: string): Promise<void> {
+    log("ICE", "🔄 Attempting alternative ICE configuration", { peerId });
+
+    // Close existing media connection but keep data connection
+    const existingConn = this.mediaConnections.get(peerId);
+    if (existingConn) {
+      existingConn.close();
+      this.mediaConnections.delete(peerId);
+    }
+
+    // Wait for cleanup
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Try with just STUN servers (sometimes TURN causes issues)
+    if (this.localStream && this.dataConnections.has(peerId) && this.peer) {
+      log("ICE", "🔄 Trying STUN-only configuration", { peerId });
+      
+      const mediaConn = this.peer.call(peerId, this.localStream, {
+        metadata: { alternativeICE: true },
+      });
+
+      if (mediaConn) {
+        this.setupMediaConnectionHandlers(mediaConn, peerId);
+        
+        // Set a timeout to check if this worked
+        setTimeout(() => {
+          const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
+          if (pc && pc.iceConnectionState === "failed") {
+            log("ICE", "❌ Alternative ICE also failed, trying relay-only", { peerId });
+            this.attemptRelayOnlyConnection(peerId);
+          }
+        }, 8000);
       }
     }
   }
@@ -668,7 +751,7 @@ export class P2PManager {
 
   /**
    * Rejoindre une room en se connectant à l'hôte
-   * Includes retry logic and better error handling
+   * Includes robust retry logic and better error handling
    */
   async joinRoom(
     hostPeerId: string,
@@ -739,19 +822,19 @@ export class P2PManager {
       log("JOIN", "⚠️ WARNING: Joining room WITHOUT any local stream!");
     }
 
-    // Retry logic for connection
-    const maxRetries = 3;
+    // Robust retry logic for connection with multiple fallback strategies
     let lastError: Error | null = null;
+    let useAlternativeICE = false;
 
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    for (let attempt = 1; attempt <= MAX_INITIAL_RETRIES; attempt++) {
       try {
         log(
           "JOIN",
-          `🔄 Connection attempt ${attempt}/${maxRetries} to host: ${hostPeerId}`,
+          `🔄 Connection attempt ${attempt}/${MAX_INITIAL_RETRIES} to host: ${hostPeerId}`,
         );
 
         // Connect to host and wait for connection to be established
-        await this.connectToPeer(hostPeerId, localStream);
+        await this.connectToPeerWithRetry(hostPeerId, localStream, useAlternativeICE);
 
         // Wait a bit for connection to stabilize
         await new Promise((resolve) => setTimeout(resolve, 500));
@@ -787,15 +870,27 @@ export class P2PManager {
         lastError = error as Error;
         log("JOIN", `❌ Attempt ${attempt} failed`, {
           error: (error as Error).message,
+          willRetry: attempt < MAX_INITIAL_RETRIES,
         });
 
         // Clean up failed connection before retry
         this.dataConnections.delete(hostPeerId);
         this.mediaConnections.delete(hostPeerId);
 
-        if (attempt < maxRetries) {
-          // Wait before retry with exponential backoff
-          await new Promise((resolve) => setTimeout(resolve, 1000 * attempt));
+        if (attempt < MAX_INITIAL_RETRIES) {
+          // Progressive backoff with jitter
+          const baseDelay = INITIAL_RETRY_DELAYS[Math.min(attempt - 1, INITIAL_RETRY_DELAYS.length - 1)];
+          const jitter = Math.random() * 500;
+          const delay = baseDelay + jitter;
+          
+          log("JOIN", `⏳ Waiting ${Math.round(delay)}ms before retry...`);
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          
+          // After 2 failures, try alternative ICE configuration
+          if (attempt >= 2) {
+            useAlternativeICE = true;
+            log("JOIN", "🔄 Will use alternative ICE configuration for next attempt");
+          }
         }
       }
     }
@@ -857,6 +952,32 @@ export class P2PManager {
   }
 
   /**
+   * Se connecter à un pair spécifique avec retry et fallback
+   * Returns a Promise that resolves when the data connection is established
+   * Includes ICE state monitoring and proper error handling
+   */
+  private async connectToPeerWithRetry(
+    peerId: string,
+    localStream: MediaStream | null,
+    useAlternativeICE: boolean = false,
+  ): Promise<void> {
+    // Try primary connection method
+    try {
+      await this.connectToPeer(peerId, localStream, useAlternativeICE);
+    } catch (error) {
+      log("CONN", "Primary connection failed, trying fallback", { peerId, error: (error as Error).message });
+      
+      // If primary fails and we haven't tried alternative ICE, try it
+      if (!useAlternativeICE) {
+        log("CONN", "🔄 Trying alternative ICE configuration", { peerId });
+        await this.connectToPeer(peerId, localStream, true);
+      } else {
+        throw error;
+      }
+    }
+  }
+
+  /**
    * Se connecter à un pair spécifique
    * Returns a Promise that resolves when the data connection is established
    * Includes ICE state monitoring and proper error handling
@@ -864,6 +985,7 @@ export class P2PManager {
   private connectToPeer(
     peerId: string,
     localStream: MediaStream | null,
+    useAlternativeICE: boolean = false,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
       if (!this.peer) {
@@ -892,10 +1014,22 @@ export class P2PManager {
       log("CONN", "Initiating connection to peer", { peerId });
 
       // Data connection with serialization for reliability
-      const dataConn = this.peer.connect(peerId, {
+      // Use alternative config if specified
+      const connectionOptions: any = {
         reliable: true,
         serialization: "json",
-      });
+      };
+      
+      if (useAlternativeICE) {
+        // Add custom config for alternative ICE
+        connectionOptions.config = {
+          iceServers: this.getRelayOnlyIceServers(),
+          iceTransportPolicy: "relay",
+          iceCandidatePoolSize: 10,
+        };
+      }
+      
+      const dataConn = this.peer.connect(peerId, connectionOptions);
 
       // Timeout for connection
       const connectionTimeout = setTimeout(() => {

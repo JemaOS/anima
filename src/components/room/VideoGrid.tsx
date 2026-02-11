@@ -94,9 +94,9 @@ const ThumbnailStrip = memo(function ThumbnailStrip({
   );
 
   return (
-    <div className="flex gap-2 overflow-x-auto shrink-0 h-20 sm:h-24 md:h-28">
+    <div className="flex gap-3 overflow-x-auto shrink-0 h-20 sm:h-24 md:h-28">
       {others.map((p) => (
-        <div key={p.id} className="shrink-0 h-full aspect-video">
+        <div key={p.id} className="shrink-0 h-full aspect-video rounded-xl overflow-hidden">
           <VideoTile
             participant={p}
             isLocal={localParticipant?.id === p.id}
@@ -234,9 +234,9 @@ export const VideoGrid = memo(function VideoGrid({
     const actualRows = Math.ceil(count / cols);
 
     const gap =
-      screenSize === "xxs" ? "2px" :
-      screenSize === "xs" ? "4px" :
-      screenSize === "sm" ? "6px" : "8px";
+      screenSize === "xxs" ? "4px" :
+      screenSize === "xs" ? "6px" :
+      screenSize === "sm" ? "8px" : "12px";
 
     return {
       display: "grid" as const,
@@ -245,7 +245,7 @@ export const VideoGrid = memo(function VideoGrid({
       gap,
       height: "100%",
       width: "100%",
-      padding: screenSize === "xxs" ? "2px" : undefined,
+      padding: screenSize === "xxs" ? "4px" : screenSize === "xs" ? "6px" : "8px",
     };
   }, [layout, count, screenSize]);
 
@@ -265,11 +265,11 @@ export const VideoGrid = memo(function VideoGrid({
   if (pinned) {
     return (
       <div
-        className="h-full flex flex-col gap-2 p-2 sm:p-3 overflow-hidden"
+        className="h-full flex flex-col gap-3 p-3 sm:p-4 overflow-hidden"
         style={{ filter: videoFilter }}
       >
         {/* Main participant - takes most of the space */}
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 rounded-2xl overflow-hidden">
           <VideoTile
             participant={pinned}
             isLocal={localParticipant?.id === pinned.id}
@@ -297,11 +297,11 @@ export const VideoGrid = memo(function VideoGrid({
   if (count === 2 && (screenSize === "xs" || screenSize === "sm" || screenSize === "xxs")) {
     return (
       <div
-        className="h-full w-full p-1 sm:p-2 overflow-hidden flex flex-col gap-1 sm:gap-2"
+        className="h-full w-full p-2 sm:p-3 overflow-hidden flex flex-col gap-2 sm:gap-3"
         style={{ filter: videoFilter }}
       >
         {allParticipants.map((participant, index) => (
-          <div key={participant.id} className="flex-1 min-h-0 w-full">
+          <div key={participant.id} className="flex-1 min-h-0 w-full rounded-2xl overflow-hidden">
             <GridVideoTile
               participant={participant}
               isLocal={index === 0 && !!localParticipant}
@@ -319,19 +319,20 @@ export const VideoGrid = memo(function VideoGrid({
   if (count >= 3 && count <= 4 && (screenSize === "xs" || screenSize === "xxs")) {
     return (
       <div
-        className="h-full w-full p-1 overflow-hidden"
+        className="h-full w-full p-2 overflow-hidden"
         style={{ filter: videoFilter }}
       >
-        <div className="grid grid-cols-2 grid-rows-2 gap-1 h-full w-full">
+        <div className="grid grid-cols-2 grid-rows-2 gap-2 h-full w-full">
           {allParticipants.map((participant, index) => (
-            <GridVideoTile
-              key={participant.id}
-              participant={participant}
-              isLocal={index === 0 && !!localParticipant}
-              size="small"
-              onPin={handlePinParticipant(participant.id)}
-              facingMode={facingMode}
-            />
+            <div key={participant.id} className="rounded-2xl overflow-hidden">
+              <GridVideoTile
+                participant={participant}
+                isLocal={index === 0 && !!localParticipant}
+                size="small"
+                onPin={handlePinParticipant(participant.id)}
+                facingMode={facingMode}
+              />
+            </div>
           ))}
         </div>
       </div>
@@ -342,19 +343,20 @@ export const VideoGrid = memo(function VideoGrid({
   if (count === 3 && screenSize === "sm") {
     return (
       <div
-        className="h-full w-full p-1 sm:p-2 overflow-hidden"
+        className="h-full w-full p-2 sm:p-3 overflow-hidden"
         style={{ filter: videoFilter }}
       >
-        <div className="grid grid-cols-2 grid-rows-2 gap-1 sm:gap-2 h-full w-full">
+        <div className="grid grid-cols-2 grid-rows-2 gap-2 sm:gap-3 h-full w-full">
           {allParticipants.map((participant, index) => (
-            <GridVideoTile
-              key={participant.id}
-              participant={participant}
-              isLocal={index === 0 && !!localParticipant}
-              size="small"
-              onPin={handlePinParticipant(participant.id)}
-              facingMode={facingMode}
-            />
+            <div key={participant.id} className="rounded-2xl overflow-hidden">
+              <GridVideoTile
+                participant={participant}
+                isLocal={index === 0 && !!localParticipant}
+                size="small"
+                onPin={handlePinParticipant(participant.id)}
+                facingMode={facingMode}
+              />
+            </div>
           ))}
         </div>
       </div>
@@ -364,19 +366,20 @@ export const VideoGrid = memo(function VideoGrid({
   // Layout standard avec grille
   return (
     <div
-      className="h-full w-full p-1 sm:p-2 md:p-3 overflow-hidden"
+      className="h-full w-full p-2 sm:p-3 md:p-4 overflow-hidden"
       style={{ filter: videoFilter }}
     >
       <div style={gridStyle}>
         {allParticipants.map((participant, index) => (
-          <GridVideoTile
-            key={participant.id}
-            participant={participant}
-            isLocal={index === 0 && !!localParticipant}
-            size={tileSize}
-            onPin={handlePinParticipant(participant.id)}
-            facingMode={facingMode}
-          />
+          <div key={participant.id} className="rounded-2xl overflow-hidden">
+            <GridVideoTile
+              participant={participant}
+              isLocal={index === 0 && !!localParticipant}
+              size={tileSize}
+              onPin={handlePinParticipant(participant.id)}
+              facingMode={facingMode}
+            />
+          </div>
         ))}
       </div>
     </div>
