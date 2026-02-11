@@ -1,24 +1,24 @@
-import { test, expect } from '@playwright/test';
+import { test, expect } from "@playwright/test";
 
-test('homepage has title and create button', async ({ page }) => {
-  await page.goto('/');
+test("homepage has title and create button", async ({ page }) => {
+  await page.goto("/");
 
   // Check title
   await expect(page).toHaveTitle(/Anima/);
 
   // Check for "Nouvelle réunion" button
-  const createButton = page.getByRole('button', { name: /Nouvelle réunion/i });
+  const createButton = page.getByRole("button", { name: /Nouvelle réunion/i });
   await expect(createButton).toBeVisible();
 
   // Check for "Rejoindre" button
-  const joinButton = page.getByRole('button', { name: /Rejoindre/i });
+  const joinButton = page.getByRole("button", { name: /Rejoindre/i });
   await expect(joinButton).toBeVisible();
 });
 
-test('can navigate to prejoin page', async ({ page }) => {
-  await page.goto('/');
-  
-  const createButton = page.getByRole('button', { name: /Nouvelle réunion/i });
+test("can navigate to prejoin page", async ({ page }) => {
+  await page.goto("/");
+
+  const createButton = page.getByRole("button", { name: /Nouvelle réunion/i });
   await createButton.click();
 
   // Should navigate to /prejoin/xxx-yyy-zzz

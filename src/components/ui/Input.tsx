@@ -1,14 +1,14 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { forwardRef } from 'react';
+import React, { forwardRef } from "react";
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   error?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ className = '', error, ...props }, ref) => {
+  ({ className = "", error, ...props }, ref) => {
     return (
       <div className="w-full">
         <input
@@ -20,17 +20,15 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             text-white placeholder:text-gray-400
             focus:outline-none focus:border-primary-500 focus:border-2 focus:text-white
             transition-all duration-150
-            ${error ? 'border-danger-500' : ''}
+            ${error ? "border-danger-500" : ""}
             ${className}
           `}
           {...props}
         />
-        {error && (
-          <p className="mt-1 text-sm text-danger-500">{error}</p>
-        )}
+        {error && <p className="mt-1 text-sm text-danger-500">{error}</p>}
       </div>
     );
-  }
+  },
 );
 
-Input.displayName = 'Input';
+Input.displayName = "Input";

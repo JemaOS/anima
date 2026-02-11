@@ -26,12 +26,14 @@ Anima is a modern, secure, and privacy-focused video conferencing application bu
 ### Installation
 
 1. Clone the repository:
+
    ```bash
    git clone https://github.com/johnkryptochain/anima.git
    cd anima
    ```
 
 2. Install dependencies:
+
    ```bash
    pnpm install
    ```

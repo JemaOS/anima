@@ -1,22 +1,27 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Button, Icon } from '@/components/ui';
-import { generateRoomCode, getRecentRooms, isValidRoomCode, removeRecentRoom } from '@/utils/helpers';
+import React, { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button, Icon } from "@/components/ui";
+import {
+  generateRoomCode,
+  getRecentRooms,
+  isValidRoomCode,
+  removeRecentRoom,
+} from "@/utils/helpers";
 
 export function HomePage() {
   const navigate = useNavigate();
-  const [roomCode, setRoomCode] = useState('');
-  const [error, setError] = useState('');
+  const [roomCode, setRoomCode] = useState("");
+  const [error, setError] = useState("");
   const [recentRoomsVersion, setRecentRoomsVersion] = useState(0);
   const recentRooms = getRecentRooms().slice(0, 3);
 
   const handleDeleteRoom = useCallback((e: React.MouseEvent, code: string) => {
     e.stopPropagation(); // Empêcher la navigation vers la réunion
     removeRecentRoom(code);
-    setRecentRoomsVersion(v => v + 1); // Forcer le re-render
+    setRecentRoomsVersion((v) => v + 1); // Forcer le re-render
   }, []);
 
   const handleCreateRoom = () => {
@@ -26,14 +31,14 @@ export function HomePage() {
 
   const handleJoinRoom = () => {
     const cleanCode = roomCode.trim().toLowerCase();
-    
+
     if (!cleanCode) {
-      setError('Entrez un code de reunion');
+      setError("Entrez un code de reunion");
       return;
     }
 
     if (!isValidRoomCode(cleanCode)) {
-      setError('Code invalide. Format: xxx-yyyy-zzz');
+      setError("Code invalide. Format: xxx-yyyy-zzz");
       return;
     }
 
@@ -42,22 +47,22 @@ export function HomePage() {
 
   const handleCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setRoomCode(e.target.value);
-    setError('');
+    setError("");
   };
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-[#0f0f1a] relative flex flex-col">
       {/* Subtle gradient background */}
       <div className="absolute inset-0 bg-gradient-to-b from-[#0f0f1a] via-[#151528] to-[#0f0f1a]" />
-      
+
       {/* Single subtle accent glow */}
       <div
         className="absolute w-[500px] h-[500px] rounded-full opacity-[0.06] blur-[100px]"
         style={{
-          background: 'radial-gradient(circle, #8f88ed 0%, transparent 70%)',
-          top: '15%',
-          left: '50%',
-          transform: 'translateX(-50%)',
+          background: "radial-gradient(circle, #8f88ed 0%, transparent 70%)",
+          top: "15%",
+          left: "50%",
+          transform: "translateX(-50%)",
         }}
       />
 
@@ -68,13 +73,11 @@ export function HomePage() {
           <div className="w-14 h-14 bg-gradient-to-br from-[#8f88ed] to-[#6366f1] rounded-xl flex items-center justify-center mb-3 shadow-lg">
             <Icon name="videocam" size={28} className="text-white" />
           </div>
-          
+
           <h1 className="text-2xl font-semibold text-white tracking-tight mb-1">
             Anima
           </h1>
-          <p className="text-sm text-gray-500">
-            Visioconférence P2P sécurisée
-          </p>
+          <p className="text-sm text-gray-500">Visioconférence P2P sécurisée</p>
         </div>
 
         {/* Main card - compact */}
@@ -104,14 +107,16 @@ export function HomePage() {
                   value={roomCode}
                   onChange={handleCodeChange}
                   placeholder="Code de réunion"
-                  onKeyDown={(e) => e.key === 'Enter' && handleJoinRoom()}
+                  onKeyDown={(e) => e.key === "Enter" && handleJoinRoom()}
                   className="w-full h-11 px-4 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder:text-gray-600 focus:outline-none focus:border-[#8f88ed]/40 transition-colors duration-200 text-sm"
                 />
                 {error && (
-                  <p className="absolute -bottom-4 left-0 text-red-400 text-xs">{error}</p>
+                  <p className="absolute -bottom-4 left-0 text-red-400 text-xs">
+                    {error}
+                  </p>
                 )}
               </div>
-              
+
               <button
                 onClick={handleJoinRoom}
                 className="w-full h-11 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] rounded-xl text-gray-300 font-medium transition-colors duration-200 text-sm"
@@ -153,7 +158,9 @@ export function HomePage() {
                     className="flex-1 flex items-center gap-2 text-left"
                   >
                     <Icon name="videocam" size={14} className="text-gray-600" />
-                    <span className="font-mono text-xs text-gray-400">{room.code}</span>
+                    <span className="font-mono text-xs text-gray-400">
+                      {room.code}
+                    </span>
                   </button>
                   <div className="flex items-center gap-1">
                     <button
@@ -185,7 +192,16 @@ export function HomePage() {
       {/* Footer - fixed at bottom */}
       <div className="relative z-10 pb-4 text-center">
         <p className="text-gray-700 text-xs">
-          Développé par <a href="https://www.jematechnology.fr/" target="_blank" rel="noopener noreferrer" className="text-[#8f88ed] hover:underline">Jema Technology</a> © 2025 • Open Source & sous licence AGPL
+          Développé par{" "}
+          <a
+            href="https://www.jematechnology.fr/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[#8f88ed] hover:underline"
+          >
+            Jema Technology
+          </a>{" "}
+          © 2025 • Open Source & sous licence AGPL
         </p>
       </div>
     </div>

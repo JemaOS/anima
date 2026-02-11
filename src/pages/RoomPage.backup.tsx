@@ -1,13 +1,13 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import Peer, { DataConnection, MediaConnection } from 'peerjs';
-import { VideoGrid, ControlBar, SidePanel } from '@/components/room';
-import { Icon } from '@/components/ui';
-import { Participant, ChatMessage } from '@/types';
-import { generateId, formatDuration } from '@/utils/helpers';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate, useParams, useLocation } from "react-router-dom";
+import Peer, { DataConnection, MediaConnection } from "peerjs";
+import { VideoGrid, ControlBar, SidePanel } from "@/components/room";
+import { Icon } from "@/components/ui";
+import { Participant, ChatMessage } from "@/types";
+import { generateId, formatDuration } from "@/utils/helpers";
 
 interface LocationState {
   userName: string;
@@ -27,16 +27,18 @@ export function RoomPage() {
   useEffect(() => {
     if (!state?.userName) {
       const hash = window.location.hash;
-      console.log('[RoomPage] Redirection vers prejoin avec hash:', hash);
+      console.log("[RoomPage] Redirection vers prejoin avec hash:", hash);
       navigate(`/prejoin/${code}${hash}`);
     }
   }, [state, code, navigate]);
 
   // État principal
   const [peer, setPeer] = useState<Peer | null>(null);
-  const [myId, setMyId] = useState<string>('');
+  const [myId, setMyId] = useState<string>("");
   const [connected, setConnected] = useState(false);
-  const [participants, setParticipants] = useState<Map<string, Participant>>(new Map());
+  const [participants, setParticipants] = useState<Map<string, Participant>>(
+    new Map(),
+  );
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [screenStream, setScreenStream] = useState<MediaStream | null>(null);
   const [audioEnabled, setAudioEnabled] = useState(state?.audioEnabled ?? true);
@@ -80,27 +82,27 @@ export function RoomPage() {
       const newPeer = new Peer(peerId, {
         config: {
           iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:global.stun.twilio.com:3478' },
+            { urls: "stun:stun.l.google.com:19302" },
+            { urls: "stun:global.stun.twilio.com:3478" },
           ],
         },
       });
 
-      newPeer.on('open', (id) => {
-        console.log('[Peer] Connecte avec ID:', id);
+      newPeer.on("open", (id) => {
+        console.log("[Peer] Connecte avec ID:", id);
         setMyId(id);
         setConnected(true);
-        
+
         // Si hôte, ajouter le peer ID dans l'URL hash
         if (state?.isHost && !window.location.hash) {
           const newUrl = `${window.location.pathname}${window.location.search}#peer_id=${id}`;
-          window.history.replaceState(null, '', newUrl);
-          console.log('[Quick Fix P2P] Hôte - Peer ID ajouté au hash:', id);
+          window.history.replaceState(null, "", newUrl);
+          console.log("[Quick Fix P2P] Hôte - Peer ID ajouté au hash:", id);
         }
       });
 
-      newPeer.on('error', (error) => {
-        console.error('[Peer] Erreur:', error);
+      newPeer.on("error", (error) => {
+        console.error("[Peer] Erreur:", error);
         // Mettre connected à true quand même pour ne pas bloquer l'UI
         setConnected(true);
       });
@@ -120,38 +122,48 @@ export function RoomPage() {
             noiseSuppression: true,
           },
         });
-        
+
         // Appliquer les paramètres initiaux
-        stream.getAudioTracks().forEach(track => {
+        stream.getAudioTracks().forEach((track) => {
           track.enabled = state.audioEnabled;
         });
-        stream.getVideoTracks().forEach(track => {
+        stream.getVideoTracks().forEach((track) => {
           track.enabled = state.videoEnabled;
         });
-        
+
         setLocalStream(stream);
         localStreamRef.current = stream;
         setMediaError(null);
       } catch (error: any) {
-        console.warn('[Media] Erreur capture media:', error.name, error.message);
+        console.warn(
+          "[Media] Erreur capture media:",
+          error.name,
+          error.message,
+        );
         // Permettre de continuer sans média
-        if (error.name === 'NotFoundError') {
-          setMediaError('Aucune camera ou microphone detecte. Vous pouvez continuer sans video.');
-        } else if (error.name === 'NotAllowedError') {
-          setMediaError('Permissions refusees. Vous pouvez continuer sans video.');
+        if (error.name === "NotFoundError") {
+          setMediaError(
+            "Aucune camera ou microphone detecte. Vous pouvez continuer sans video.",
+          );
+        } else if (error.name === "NotAllowedError") {
+          setMediaError(
+            "Permissions refusees. Vous pouvez continuer sans video.",
+          );
         } else {
-          setMediaError('Impossible d\'acceder aux peripheriques. Mode sans video actif.');
+          setMediaError(
+            "Impossible d'acceder aux peripheriques. Mode sans video actif.",
+          );
         }
         setVideoEnabled(false);
         setAudioEnabled(false);
       }
 
       // 3. Configurer les handlers de connexion
-      newPeer.on('connection', (dataConn) => {
+      newPeer.on("connection", (dataConn) => {
         handleIncomingDataConnection(dataConn, localStreamRef.current);
       });
 
-      newPeer.on('call', (mediaConn) => {
+      newPeer.on("call", (mediaConn) => {
         handleIncomingCall(mediaConn, localStreamRef.current);
       });
     };
@@ -160,125 +172,146 @@ export function RoomPage() {
 
     return () => {
       // Cleanup
-      localStream?.getTracks().forEach(track => track.stop());
-      screenStream?.getTracks().forEach(track => track.stop());
-      dataConnections.current.forEach(conn => conn.close());
-      mediaConnections.current.forEach(conn => conn.close());
+      localStream?.getTracks().forEach((track) => track.stop());
+      screenStream?.getTracks().forEach((track) => track.stop());
+      dataConnections.current.forEach((conn) => conn.close());
+      mediaConnections.current.forEach((conn) => conn.close());
       peer?.destroy();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, state]);
 
   // Quick Fix P2P: Découverte automatique via hostPeerId du state
   useEffect(() => {
-    console.log('[DEBUG useEffect P2P] Déclenchement du useEffect', {
+    console.log("[DEBUG useEffect P2P] Déclenchement du useEffect", {
       peer: !!peer,
       connected,
       myId,
       isHost: state?.isHost,
       connectionAttempted: connectionAttempted.current,
-      hostPeerId: state?.hostPeerId
+      hostPeerId: state?.hostPeerId,
     });
-    
+
     if (!peer) {
-      console.log('[DEBUG useEffect P2P] ❌ Pas de peer, sortie');
+      console.log("[DEBUG useEffect P2P] ❌ Pas de peer, sortie");
       return;
     }
     if (!connected) {
-      console.log('[DEBUG useEffect P2P] ❌ Pas connecté, sortie');
+      console.log("[DEBUG useEffect P2P] ❌ Pas connecté, sortie");
       return;
     }
     if (!myId) {
-      console.log('[DEBUG useEffect P2P] ❌ Pas de myId, sortie');
+      console.log("[DEBUG useEffect P2P] ❌ Pas de myId, sortie");
       return;
     }
     if (connectionAttempted.current) {
-      console.log('[DEBUG useEffect P2P] ❌ Connexion déjà tentée, sortie');
+      console.log("[DEBUG useEffect P2P] ❌ Connexion déjà tentée, sortie");
       return;
     }
-    
-    console.log('[DEBUG useEffect P2P] ✅ Toutes conditions remplies');
-    
+
+    console.log("[DEBUG useEffect P2P] ✅ Toutes conditions remplies");
+
     // Si participant (pas hôte) et hostPeerId fourni, se connecter
     if (!state?.isHost && state?.hostPeerId) {
-      console.log('[DEBUG useEffect P2P] 👤 Mode Participant détecté');
-      console.log('[DEBUG useEffect P2P] Host Peer ID du state:', state.hostPeerId);
-      
+      console.log("[DEBUG useEffect P2P] 👤 Mode Participant détecté");
+      console.log(
+        "[DEBUG useEffect P2P] Host Peer ID du state:",
+        state.hostPeerId,
+      );
+
       // Vérifier que ce n'est pas notre propre ID
       if (state.hostPeerId && state.hostPeerId !== myId) {
-        console.log('[Quick Fix P2P] 🚀 Participant - Lancement connexion à l\'hôte:', state.hostPeerId);
+        console.log(
+          "[Quick Fix P2P] 🚀 Participant - Lancement connexion à l'hôte:",
+          state.hostPeerId,
+        );
         connectionAttempted.current = true;
-        
+
         // Attendre un peu pour s'assurer que tout est initialisé
         setTimeout(() => {
-          console.log('[Quick Fix P2P] ⏱️ Timeout écoulé, appel de connectToPeer');
+          console.log(
+            "[Quick Fix P2P] ⏱️ Timeout écoulé, appel de connectToPeer",
+          );
           connectToPeer(state.hostPeerId!);
         }, 1500);
       } else {
-        console.log('[DEBUG useEffect P2P] ⚠️ hostPeerId invalide ou égal à myId');
+        console.log(
+          "[DEBUG useEffect P2P] ⚠️ hostPeerId invalide ou égal à myId",
+        );
       }
     } else if (state?.isHost) {
-      console.log('[DEBUG useEffect P2P] 👑 Mode Hôte détecté, pas d\'auto-connexion');
+      console.log(
+        "[DEBUG useEffect P2P] 👑 Mode Hôte détecté, pas d'auto-connexion",
+      );
     } else {
-      console.log('[DEBUG useEffect P2P] ⚠️ Pas de hostPeerId dans le state');
+      console.log("[DEBUG useEffect P2P] ⚠️ Pas de hostPeerId dans le state");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [peer, connected, myId, state?.isHost, state?.hostPeerId]);
 
   // Gérer connexion de données entrante
-  const handleIncomingDataConnection = useCallback((dataConn: DataConnection, stream: MediaStream | null) => {
-    console.log('[Data] Connexion entrante de:', dataConn.peer);
-    
-    dataConnections.current.set(dataConn.peer, dataConn);
+  const handleIncomingDataConnection = useCallback(
+    (dataConn: DataConnection, _stream: MediaStream | null) => {
+      console.log("[Data] Connexion entrante de:", dataConn.peer);
 
-    dataConn.on('open', () => {
-      // Envoyer nos infos
-      dataConn.send({
-        type: 'peer-info',
-        data: {
-          name: state?.userName,
-          audioEnabled,
-          videoEnabled,
-        },
+      dataConnections.current.set(dataConn.peer, dataConn);
+
+      dataConn.on("open", () => {
+        // Envoyer nos infos
+        dataConn.send({
+          type: "peer-info",
+          data: {
+            name: state?.userName,
+            audioEnabled,
+            videoEnabled,
+          },
+        });
       });
-    });
 
-    dataConn.on('data', (data: any) => {
-      handleDataMessage(data, dataConn.peer);
-    });
+      dataConn.on("data", (data: unknown) => {
+        handleDataMessage(data as any, dataConn.peer);
+      });
 
-    dataConn.on('close', () => {
-      console.log('[Data] Connexion fermée avec:', dataConn.peer);
-      removeParticipant(dataConn.peer);
-    });
-  }, [state, audioEnabled, videoEnabled]);
+      dataConn.on("close", () => {
+        console.log("[Data] Connexion fermée avec:", dataConn.peer);
+        removeParticipant(dataConn.peer);
+      });
+    },
+    [state, audioEnabled, videoEnabled],
+  );
 
   // Gérer appel entrant
-  const handleIncomingCall = useCallback((mediaConn: MediaConnection, stream: MediaStream | null) => {
-    console.log('[Media] Appel entrant de:', mediaConn.peer);
-    
-    // Répondre avec notre flux (ou flux vide si pas de média)
-    if (stream) {
-      mediaConn.answer(stream);
-    } else {
-      // Créer un stream vide pour répondre
-      const emptyStream = new MediaStream();
-      mediaConn.answer(emptyStream);
-    }
-    mediaConnections.current.set(mediaConn.peer, mediaConn);
+  const handleIncomingCall = useCallback(
+    (mediaConn: MediaConnection, stream: MediaStream | null) => {
+      console.log("[Media] Appel entrant de:", mediaConn.peer);
 
-    mediaConn.on('stream', (remoteStream) => {
-      console.log('[Media] Flux recu de:', mediaConn.peer);
-      updateParticipant(mediaConn.peer, { stream: remoteStream });
-    });
+      // Répondre avec notre flux (ou flux vide si pas de média)
+      if (stream) {
+        mediaConn.answer(stream);
+      } else {
+        // Créer un stream vide pour répondre
+        const emptyStream = new MediaStream();
+        mediaConn.answer(emptyStream);
+      }
+      mediaConnections.current.set(mediaConn.peer, mediaConn);
 
-    mediaConn.on('close', () => {
-      console.log('[Media] Appel ferme avec:', mediaConn.peer);
-    });
-  }, []);
+      mediaConn.on("stream", (remoteStream) => {
+        console.log("[Media] Flux recu de:", mediaConn.peer);
+        updateParticipant(mediaConn.peer, { stream: remoteStream });
+      });
+
+      mediaConn.on("close", () => {
+        console.log("[Media] Appel ferme avec:", mediaConn.peer);
+      });
+    },
+    [],
+  );
 
   // Gérer les messages de données
+
   const handleDataMessage = useCallback((message: any, peerId: string) => {
     switch (message.type) {
-      case 'peer-info':
+      case "peer-info":
         updateParticipant(peerId, {
           name: message.data.name,
           audioEnabled: message.data.audioEnabled,
@@ -286,25 +319,28 @@ export function RoomPage() {
         });
         break;
 
-      case 'chat-message':
-        setMessages(prev => [...prev, {
-          id: generateId(),
-          senderId: peerId,
-          senderName: message.data.senderName,
-          content: message.data.content,
-          timestamp: message.data.timestamp,
-        }]);
+      case "chat-message":
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId(),
+            senderId: peerId,
+            senderName: message.data.senderName,
+            content: message.data.content,
+            timestamp: message.data.timestamp,
+          },
+        ]);
         break;
 
-      case 'hand-raised':
+      case "hand-raised":
         updateParticipant(peerId, { handRaised: true });
         break;
 
-      case 'hand-lowered':
+      case "hand-lowered":
         updateParticipant(peerId, { handRaised: false });
         break;
 
-      case 'media-state':
+      case "media-state":
         updateParticipant(peerId, {
           audioEnabled: message.data.audioEnabled,
           videoEnabled: message.data.videoEnabled,
@@ -315,7 +351,7 @@ export function RoomPage() {
 
   // Mettre à jour un participant
   const updateParticipant = (peerId: string, data: Partial<Participant>) => {
-    setParticipants(prev => {
+    setParticipants((prev) => {
       const updated = new Map(prev);
       const existing = updated.get(peerId);
 
@@ -324,7 +360,7 @@ export function RoomPage() {
       } else {
         updated.set(peerId, {
           id: peerId,
-          name: data.name || 'Anonyme',
+          name: data.name || "Anonyme",
           audioEnabled: data.audioEnabled ?? true,
           videoEnabled: data.videoEnabled ?? true,
           screenSharing: data.screenSharing ?? false,
@@ -339,7 +375,7 @@ export function RoomPage() {
 
   // Retirer un participant
   const removeParticipant = (peerId: string) => {
-    setParticipants(prev => {
+    setParticipants((prev) => {
       const updated = new Map(prev);
       updated.delete(peerId);
       return updated;
@@ -359,28 +395,34 @@ export function RoomPage() {
 
   // Connecter à un autre peer
   const connectToPeer = (peerId: string) => {
-    console.log('[DEBUG connectToPeer] 🎯 Fonction appelée avec peerId:', peerId);
-    console.log('[DEBUG connectToPeer] État actuel:', {
+    console.log(
+      "[DEBUG connectToPeer] 🎯 Fonction appelée avec peerId:",
+      peerId,
+    );
+    console.log("[DEBUG connectToPeer] État actuel:", {
       peer: !!peer,
       hasExistingConnection: dataConnections.current.has(peerId),
-      currentConnections: Array.from(dataConnections.current.keys())
+      currentConnections: Array.from(dataConnections.current.keys()),
     });
-    
+
     if (!peer || dataConnections.current.has(peerId)) {
-      console.log('[Connect] ❌ Impossible de se connecter:', !peer ? 'pas de peer' : 'déjà connecté');
+      console.log(
+        "[Connect] ❌ Impossible de se connecter:",
+        !peer ? "pas de peer" : "déjà connecté",
+      );
       return;
     }
 
-    console.log('[Connect] ✅ Lancement connexion à:', peerId);
+    console.log("[Connect] ✅ Lancement connexion à:", peerId);
 
     // Connexion de données
     const dataConn = peer.connect(peerId);
     dataConnections.current.set(peerId, dataConn);
 
-    dataConn.on('open', () => {
-      console.log('[Connect] DataConnection ouverte avec:', peerId);
+    dataConn.on("open", () => {
+      console.log("[Connect] DataConnection ouverte avec:", peerId);
       dataConn.send({
-        type: 'peer-info',
+        type: "peer-info",
         data: {
           name: state?.userName,
           audioEnabled,
@@ -389,17 +431,17 @@ export function RoomPage() {
       });
     });
 
-    dataConn.on('data', (data: any) => {
+    dataConn.on("data", (data: any) => {
       handleDataMessage(data, peerId);
     });
 
-    dataConn.on('close', () => {
-      console.log('[Connect] DataConnection fermée avec:', peerId);
+    dataConn.on("close", () => {
+      console.log("[Connect] DataConnection fermée avec:", peerId);
       removeParticipant(peerId);
     });
 
-    dataConn.on('error', (error) => {
-      console.error('[Connect] Erreur DataConnection avec', peerId, ':', error);
+    dataConn.on("error", (error) => {
+      console.error("[Connect] Erreur DataConnection avec", peerId, ":", error);
     });
 
     // Appel média seulement si on a un stream local
@@ -407,16 +449,21 @@ export function RoomPage() {
       const mediaConn = peer.call(peerId, localStreamRef.current);
       mediaConnections.current.set(peerId, mediaConn);
 
-      mediaConn.on('stream', (remoteStream) => {
-        console.log('[Media] Flux recu de:', peerId);
+      mediaConn.on("stream", (remoteStream) => {
+        console.log("[Media] Flux recu de:", peerId);
         updateParticipant(peerId, { stream: remoteStream });
       });
-      
-      mediaConn.on('error', (error) => {
-        console.error('[Media] Erreur MediaConnection avec', peerId, ':', error);
+
+      mediaConn.on("error", (error) => {
+        console.error(
+          "[Media] Erreur MediaConnection avec",
+          peerId,
+          ":",
+          error,
+        );
       });
     } else {
-      console.log('[Connect] Pas de stream local, connexion data seulement');
+      console.log("[Connect] Pas de stream local, connexion data seulement");
     }
   };
 
@@ -429,7 +476,7 @@ export function RoomPage() {
         setAudioEnabled(audioTrack.enabled);
 
         broadcast({
-          type: 'media-state',
+          type: "media-state",
           data: { audioEnabled: audioTrack.enabled, videoEnabled },
         });
       }
@@ -445,7 +492,7 @@ export function RoomPage() {
         setVideoEnabled(videoTrack.enabled);
 
         broadcast({
-          type: 'media-state',
+          type: "media-state",
           data: { audioEnabled, videoEnabled: videoTrack.enabled },
         });
       }
@@ -463,10 +510,12 @@ export function RoomPage() {
       setScreenStream(stream);
 
       const screenTrack = stream.getVideoTracks()[0];
-      
+
       // Remplacer la piste vidéo dans toutes les connexions
       mediaConnections.current.forEach((conn) => {
-        const sender = conn.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+        const sender = conn.peerConnection
+          .getSenders()
+          .find((s) => s.track?.kind === "video");
         if (sender) {
           sender.replaceTrack(screenTrack);
         }
@@ -475,22 +524,23 @@ export function RoomPage() {
       screenTrack.onended = () => {
         stopScreenShare();
       };
-
     } catch (error) {
-      console.error('Erreur partage ecran:', error);
+      console.error("Erreur partage ecran:", error);
     }
   };
 
   const stopScreenShare = () => {
     if (screenStream) {
-      screenStream.getTracks().forEach(track => track.stop());
+      screenStream.getTracks().forEach((track) => track.stop());
       setScreenStream(null);
 
       // Revenir à la caméra
       if (localStream) {
         const cameraTrack = localStream.getVideoTracks()[0];
         mediaConnections.current.forEach((conn) => {
-          const sender = conn.peerConnection.getSenders().find(s => s.track?.kind === 'video');
+          const sender = conn.peerConnection
+            .getSenders()
+            .find((s) => s.track?.kind === "video");
           if (sender && cameraTrack) {
             sender.replaceTrack(cameraTrack);
           }
@@ -502,7 +552,7 @@ export function RoomPage() {
   // Chat
   const sendChatMessage = (content: string) => {
     const message = {
-      type: 'chat-message',
+      type: "chat-message",
       data: {
         senderName: state?.userName,
         content,
@@ -512,34 +562,37 @@ export function RoomPage() {
 
     broadcast(message);
 
-    setMessages(prev => [...prev, {
-      id: generateId(),
-      senderId: myId,
-      senderName: state?.userName || 'Moi',
-      content,
-      timestamp: Date.now(),
-    }]);
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: generateId(),
+        senderId: myId,
+        senderName: state?.userName || "Moi",
+        content,
+        timestamp: Date.now(),
+      },
+    ]);
   };
 
   // Lever/baisser la main
   const raiseHand = () => {
     setHandRaised(true);
-    broadcast({ type: 'hand-raised' });
+    broadcast({ type: "hand-raised" });
   };
 
   const lowerHand = () => {
     setHandRaised(false);
-    broadcast({ type: 'hand-lowered' });
+    broadcast({ type: "hand-lowered" });
   };
 
   // Quitter la réunion
   const leaveRoom = () => {
-    localStream?.getTracks().forEach(track => track.stop());
-    screenStream?.getTracks().forEach(track => track.stop());
-    dataConnections.current.forEach(conn => conn.close());
-    mediaConnections.current.forEach(conn => conn.close());
+    localStream?.getTracks().forEach((track) => track.stop());
+    screenStream?.getTracks().forEach((track) => track.stop());
+    dataConnections.current.forEach((conn) => conn.close());
+    mediaConnections.current.forEach((conn) => conn.close());
     peer?.destroy();
-    navigate('/');
+    navigate("/");
   };
 
   // Copier le lien de la réunion (avec hash pour Quick Fix P2P)
@@ -547,7 +600,7 @@ export function RoomPage() {
     const url = `${window.location.origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
     navigator.clipboard.writeText(url);
   };
-  
+
   // Copier le lien d'invitation avec peer ID
   const copyInviteLink = () => {
     const fullUrl = `${window.location.href}`;
@@ -559,7 +612,7 @@ export function RoomPage() {
   // Participant local pour l'affichage
   const localParticipant: Participant = {
     id: myId,
-    name: state?.userName || 'Moi',
+    name: state?.userName || "Moi",
     stream: screenStream || localStream || undefined,
     audioEnabled,
     videoEnabled,
@@ -585,7 +638,9 @@ export function RoomPage() {
             <Icon name="copy" size={16} className="text-neutral-400" />
           </button>
           <span className="text-neutral-400">|</span>
-          <span className="text-sm text-neutral-400">{formatDuration(duration)}</span>
+          <span className="text-sm text-neutral-400">
+            {formatDuration(duration)}
+          </span>
           {/* Badge limitation 2 participants */}
           <span className="text-neutral-400">|</span>
           <span className="text-xs px-2 py-1 bg-warning-500/20 text-warning-400 rounded-full">
@@ -621,9 +676,21 @@ export function RoomPage() {
         onStopScreenShare={stopScreenShare}
         onRaiseHand={raiseHand}
         onLowerHand={lowerHand}
-        onOpenChat={() => { setChatOpen(true); setParticipantsOpen(false); setSettingsOpen(false); }}
-        onOpenParticipants={() => { setParticipantsOpen(true); setChatOpen(false); setSettingsOpen(false); }}
-        onOpenSettings={() => { setSettingsOpen(true); setChatOpen(false); setParticipantsOpen(false); }}
+        onOpenChat={() => {
+          setChatOpen(true);
+          setParticipantsOpen(false);
+          setSettingsOpen(false);
+        }}
+        onOpenParticipants={() => {
+          setParticipantsOpen(true);
+          setChatOpen(false);
+          setSettingsOpen(false);
+        }}
+        onOpenSettings={() => {
+          setSettingsOpen(true);
+          setChatOpen(false);
+          setParticipantsOpen(false);
+        }}
         onLeave={leaveRoom}
         onOpenReactions={() => {}}
       />
@@ -678,21 +745,24 @@ export function RoomPage() {
             En attente d'un participant
           </p>
           <p className="text-neutral-400 text-xs mb-4">
-            Partagez ce lien pour inviter <span className="text-warning-400 font-semibold">1 personne</span> (max 2 participants)
+            Partagez ce lien pour inviter{" "}
+            <span className="text-warning-400 font-semibold">1 personne</span>{" "}
+            (max 2 participants)
           </p>
           <button
             onClick={copyInviteLink}
             className="w-full px-4 py-2 bg-primary-500 hover:bg-primary-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
           >
             <Icon name={inviteLinkCopied ? "check" : "copy"} size={18} />
-            {inviteLinkCopied ? 'Lien copié!' : 'Copier le lien d\'invitation'}
+            {inviteLinkCopied ? "Lien copié!" : "Copier le lien d'invitation"}
           </button>
           <p className="text-neutral-500 text-xs mt-3">
-            ℹ️ Version Quick Fix - Pour plus de participants, contactez l'administrateur
+            ℹ️ Version Quick Fix - Pour plus de participants, contactez
+            l'administrateur
           </p>
         </div>
       )}
-      
+
       {/* Message pour participant en attente de connexion */}
       {connected && participants.size === 0 && !state?.isHost && (
         <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-neutral-800 rounded-xl px-6 py-4 text-center max-w-md z-40">

@@ -1,75 +1,473 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="fr">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hors Ligne - Anima</title>
-  <style>
-    body {
-      font-family: 'Google Sans', 'Roboto', Arial, sans-serif;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      min-height: 100vh;
-      margin: 0;
-      background: #0F0F0F;
-      color: #E8EAED;
-      text-align: center;
-      padding: 20px;
-    }
-    .offline-container {
-      max-width: 500px;
-    }
-    h1 {
-      font-size: 2.5rem;
-      margin-bottom: 1rem;
-      color: #FFFFFF;
-    }
-    p {
-      font-size: 1.2rem;
-      line-height: 1.6;
-      color: #9AA0A6;
-      margin-bottom: 2rem;
-    }
-    .retry-btn {
-      padding: 12px 30px;
-      font-size: 1rem;
-      background: #4285F4;
-      color: white;
-      border: none;
-      border-radius: 24px;
-      cursor: pointer;
-      font-weight: 600;
-      font-family: 'Google Sans', sans-serif;
-      transition: background 150ms;
-    }
-    .retry-btn:hover {
-      background: #5C9AFF;
-    }
-    .icon {
-      font-size: 4rem;
-      margin-bottom: 1.5rem;
-    }
-  </style>
-</head>
-<body>
-  <div class="offline-container">
-    <div class="icon">📡</div>
-    <h1>Vous êtes hors ligne</h1>
-    <p>
-      Anima nécessite une connexion Internet active pour les visioconférences.
-      Veuillez vérifier votre connexion et réessayer.
-    </p>
-    <button class="retry-btn" onclick="window.location.reload()">
-      Réessayer
-    </button>
-  </div>
-  
-  <script>
-    // Détecter le retour en ligne
-    window.addEventListener('online', () => {
-      window.location.reload();
-    });
-  </script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#007AFF" />
+    <meta name="description" content="Anima - Mode hors ligne" />
+    <title>Hors Ligne - Anima</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+        margin: 0;
+        background: linear-gradient(135deg, #0f0f0f 0%, #1a1a2e 100%);
+        color: #e8eaed;
+        text-align: center;
+        padding: 20px;
+      }
+
+      .offline-container {
+        max-width: 480px;
+        width: 100%;
+        animation: fadeIn 0.5s ease-out;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(20px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .icon-wrapper {
+        width: 120px;
+        height: 120px;
+        margin: 0 auto 2rem;
+        background: rgba(0, 122, 255, 0.1);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid rgba(0, 122, 255, 0.3);
+      }
+
+      .icon {
+        font-size: 3rem;
+        animation: pulse 2s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% {
+          opacity: 1;
+          transform: scale(1);
+        }
+        50% {
+          opacity: 0.7;
+          transform: scale(0.95);
+        }
+      }
+
+      h1 {
+        font-size: 2rem;
+        margin-bottom: 1rem;
+        color: #ffffff;
+        font-weight: 600;
+      }
+
+      .subtitle {
+        font-size: 1.1rem;
+        line-height: 1.6;
+        color: #9aa0a6;
+        margin-bottom: 2rem;
+      }
+
+      .status-card {
+        background: rgba(255, 255, 255, 0.05);
+        border-radius: 16px;
+        padding: 1.5rem;
+        margin-bottom: 2rem;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .status-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 0;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+      }
+
+      .status-item:last-child {
+        border-bottom: none;
+      }
+
+      .status-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #9aa0a6;
+        font-size: 0.95rem;
+      }
+
+      .status-value {
+        font-weight: 500;
+        font-size: 0.95rem;
+      }
+
+      .status-offline {
+        color: #ff3b30;
+      }
+
+      .status-online {
+        color: #34c759;
+      }
+
+      .status-checking {
+        color: #ff9500;
+      }
+
+      .actions {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .btn {
+        padding: 14px 28px;
+        font-size: 1rem;
+        border: none;
+        border-radius: 12px;
+        cursor: pointer;
+        font-weight: 600;
+        font-family: inherit;
+        transition: all 0.2s ease;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+      }
+
+      .btn-primary {
+        background: #007AFF;
+        color: white;
+      }
+
+      .btn-primary:hover {
+        background: #0056b3;
+        transform: translateY(-1px);
+      }
+
+      .btn-primary:active {
+        transform: translateY(0);
+      }
+
+      .btn-secondary {
+        background: rgba(255, 255, 255, 0.1);
+        color: #e8eaed;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+      }
+
+      .btn-secondary:hover {
+        background: rgba(255, 255, 255, 0.15);
+      }
+
+      .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .spinner {
+        width: 20px;
+        height: 20px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        display: none;
+      }
+
+      .btn.loading .spinner {
+        display: inline-block;
+      }
+
+      .btn.loading .btn-text {
+        display: none;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .info-section {
+        margin-top: 2rem;
+        padding-top: 2rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .info-title {
+        font-size: 0.9rem;
+        color: #9aa0a6;
+        margin-bottom: 0.75rem;
+        font-weight: 500;
+      }
+
+      .info-text {
+        font-size: 0.85rem;
+        color: #6b7280;
+        line-height: 1.5;
+      }
+
+      .cached-features {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        justify-content: center;
+      }
+
+      .feature-tag {
+        background: rgba(0, 122, 255, 0.15);
+        color: #007AFF;
+        padding: 0.4rem 0.8rem;
+        border-radius: 20px;
+        font-size: 0.8rem;
+        font-weight: 500;
+      }
+
+      /* Toast notification */
+      .toast {
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%) translateY(100px);
+        background: #34c759;
+        color: white;
+        padding: 12px 24px;
+        border-radius: 8px;
+        font-weight: 500;
+        opacity: 0;
+        transition: all 0.3s ease;
+        z-index: 1000;
+      }
+
+      .toast.show {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+      }
+
+      /* Responsive */
+      @media (max-width: 480px) {
+        h1 {
+          font-size: 1.75rem;
+        }
+
+        .icon-wrapper {
+          width: 100px;
+          height: 100px;
+        }
+
+        .icon {
+          font-size: 2.5rem;
+        }
+
+        .status-card {
+          padding: 1rem;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="offline-container">
+      <div class="icon-wrapper">
+        <div class="icon">📡</div>
+      </div>
+
+      <h1>Vous êtes hors ligne</h1>
+      <p class="subtitle">
+        Anima nécessite une connexion Internet pour établir des visioconférences.
+        Vérifiez votre connexion et réessayez.
+      </p>
+
+      <div class="status-card">
+        <div class="status-item">
+          <span class="status-label">
+            <span>🌐</span>
+            Connexion Internet
+          </span>
+          <span class="status-value status-offline" id="connection-status">Déconnecté</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">
+            <span>📶</span>
+            Type de connexion
+          </span>
+          <span class="status-value" id="connection-type">Inconnu</span>
+        </div>
+        <div class="status-item">
+          <span class="status-label">
+            <span>💾</span>
+            Mode hors ligne
+          </span>
+          <span class="status-value status-online">Disponible</span>
+        </div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-primary" id="retry-btn" onclick="retryConnection()">
+          <span class="spinner"></span>
+          <span class="btn-text">🔄 Réessayer la connexion</span>
+        </button>
+        <button class="btn btn-secondary" onclick="goHome()">
+          <span>🏠 Retour à l'accueil</span>
+        </button>
+      </div>
+
+      <div class="info-section">
+        <div class="info-title">Fonctionnalités disponibles hors ligne</div>
+        <div class="info-text">
+          Certaines fonctionnalités restent accessibles même sans connexion :
+        </div>
+        <div class="cached-features">
+          <span class="feature-tag">Navigation</span>
+          <span class="feature-tag">Historique</span>
+          <span class="feature-tag">Paramètres</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast">✅ Connexion rétablie ! Redirection...</div>
+
+    <script>
+      // État de la connexion
+      let isReconnecting = false;
+
+      // Mettre à jour le statut de connexion
+      function updateConnectionStatus() {
+        const statusEl = document.getElementById('connection-status');
+        const typeEl = document.getElementById('connection-type');
+
+        if (navigator.onLine) {
+          statusEl.textContent = 'Connecté';
+          statusEl.className = 'status-value status-online';
+
+          // Récupérer le type de connexion si disponible
+          const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+          if (connection) {
+            const types = {
+              'wifi': 'Wi-Fi',
+              'cellular': 'Mobile',
+              'ethernet': 'Ethernet',
+              '4g': '4G',
+              '3g': '3G',
+              '2g': '2G'
+            };
+            typeEl.textContent = types[connection.effectiveType] || types[connection.type] || 'Inconnu';
+          } else {
+            typeEl.textContent = 'Internet';
+          }
+
+          // Afficher le toast et rediriger
+          showToast();
+          setTimeout(() => {
+            window.location.href = '/';
+          }, 2000);
+        } else {
+          statusEl.textContent = 'Déconnecté';
+          statusEl.className = 'status-value status-offline';
+          typeEl.textContent = 'Aucune';
+        }
+      }
+
+      // Afficher le toast
+      function showToast() {
+        const toast = document.getElementById('toast');
+        toast.classList.add('show');
+      }
+
+      // Réessayer la connexion
+      async function retryConnection() {
+        if (isReconnecting) return;
+
+        const btn = document.getElementById('retry-btn');
+        isReconnecting = true;
+        btn.classList.add('loading');
+        btn.disabled = true;
+
+        // Vérifier la connexion
+        try {
+          // Essayer de fetch une ressource légère
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+          await fetch('/manifest.json', {
+            method: 'HEAD',
+            cache: 'no-store',
+            signal: controller.signal
+          });
+
+          clearTimeout(timeoutId);
+
+          // Si on arrive ici, on est en ligne
+          updateConnectionStatus();
+        } catch (error) {
+          // Toujours hors ligne
+          console.log('Toujours hors ligne:', error);
+
+          // Mettre à jour l'UI pour montrer qu'on a essayé
+          const statusEl = document.getElementById('connection-status');
+          statusEl.textContent = 'Toujours déconnecté';
+        } finally {
+          isReconnecting = false;
+          btn.classList.remove('loading');
+          btn.disabled = false;
+        }
+      }
+
+      // Retour à l'accueil
+      function goHome() {
+        window.location.href = '/';
+      }
+
+      // Écouter les événements de connexion
+      window.addEventListener('online', () => {
+        console.log('[Offline Page] Connexion rétablie');
+        updateConnectionStatus();
+      });
+
+      window.addEventListener('offline', () => {
+        console.log('[Offline Page] Connexion perdue');
+        updateConnectionStatus();
+      });
+
+      // Vérifier l'état initial
+      if (navigator.onLine) {
+        // Déjà en ligne, rediriger
+        updateConnectionStatus();
+      }
+
+      // Mettre à jour le type de connexion au chargement
+      const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+      if (connection) {
+        connection.addEventListener('change', () => {
+          if (navigator.onLine) {
+            document.getElementById('connection-type').textContent =
+              connection.effectiveType?.toUpperCase() || connection.type || 'Internet';
+          }
+        });
+      }
+
+      // Vérifier périodiquement la connexion (toutes les 5 secondes)
+      setInterval(() => {
+        if (navigator.onLine && window.location.pathname !== '/offline.html') {
+          updateConnectionStatus();
+        }
+      }, 5000);
+    </script>
+  </body>
 </html>

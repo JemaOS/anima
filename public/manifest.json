@@ -1,14 +1,21 @@
 {
   "name": "Anima - Visioconférence P2P",
   "short_name": "Anima",
-  "description": "Application de visioconférence collaborative peer-to-peer sans logs",
+  "description": "Application de visioconférence collaborative peer-to-peer sécurisée et sans logs",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "browser"],
   "orientation": "any",
-  "theme_color": "#007AFF",
+  "theme_color": "#7276d8",
   "background_color": "#000000",
+  "lang": "fr",
+  "dir": "ltr",
+  "id": "/",
+  "launch_handler": {
+    "client_mode": ["navigate-existing", "auto"]
+  },
+  "edge_side_panel": {},
   "permissions_policy": {
     "camera": ["self"],
     "microphone": ["self"],
@@ -49,19 +56,47 @@
   ],
   "screenshots": [
     {
+      "src": "/screenshots/desktop-home.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Page d'accueil Anima sur desktop"
+    },
+    {
       "src": "/screenshots/desktop-call.png",
       "sizes": "1920x1080",
       "type": "image/png",
-      "form_factor": "wide"
+      "form_factor": "wide",
+      "label": "Appel vidéo en cours sur desktop"
+    },
+    {
+      "src": "/screenshots/mobile-home.png",
+      "sizes": "750x1334",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Page d'accueil Anima sur mobile"
     },
     {
       "src": "/screenshots/mobile-call.png",
       "sizes": "750x1334",
       "type": "image/png",
-      "form_factor": "narrow"
+      "form_factor": "narrow",
+      "label": "Appel vidéo en cours sur mobile"
     }
   ],
   "shortcuts": [
+    {
+      "name": "Nouvelle réunion",
+      "short_name": "Nouvelle",
+      "description": "Démarrer une nouvelle réunion instantanément",
+      "url": "/",
+      "icons": [
+        {
+          "src": "/icons/icon-192x192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
     {
       "name": "Rejoindre une réunion",
       "short_name": "Rejoindre",
@@ -73,20 +108,20 @@
           "sizes": "192x192"
         }
       ]
-    },
-    {
-      "name": "Nouvelle réunion",
-      "short_name": "Créer",
-      "description": "Démarrer une nouvelle réunion",
-      "url": "/create",
-      "icons": [
-        {
-          "src": "/icons/icon-192x192.png",
-          "sizes": "192x192"
-        }
-      ]
     }
   ],
-  "categories": ["productivity", "business", "communication"],
-  "prefer_related_applications": false
+  "categories": ["productivity", "business", "communication", "social"],
+  "keywords": ["visioconférence", "video", "appel", "peer-to-peer", "p2p", "sécurisé", "privacy"],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "handle_links": "preferred",
+  "share_target": {
+    "action": "/",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
 }

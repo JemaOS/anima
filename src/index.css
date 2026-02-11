@@ -2,7 +2,7 @@
  * Distributed under the license specified in the root directory of this project.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
@@ -10,13 +10,15 @@
 
 @layer base {
   body {
-    font-family: 'Inter', 'Roboto', system-ui, sans-serif;
+    font-family: "Inter", "Roboto", system-ui, sans-serif;
     font-size: 14px;
     margin: 0;
     padding: 0;
   }
 
-  html, body, #root {
+  html,
+  body,
+  #root {
     height: 100%;
     width: 100%;
   }
@@ -32,12 +34,12 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    background: #3C3C3C;
+    background: #3c3c3c;
     border-radius: 8px; /* JEMA: Augmenté de 4px à 8px */
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    background: #4A4A4A;
+    background: #4a4a4a;
   }
 }
 
@@ -88,7 +90,8 @@
 
 /* Animations */
 @keyframes pulse {
-  0%, 100% {
+  0%,
+  100% {
     opacity: 1;
   }
   50% {
@@ -111,11 +114,11 @@
 
 /* JEMA: Dégradés subtils d'arrière-plan (optionnel) */
 .bg-gradient-jema {
-  background: linear-gradient(135deg, #F5F4FE 0%, #F0F2F5 50%, #FFFFFF 100%);
+  background: linear-gradient(135deg, #f5f4fe 0%, #f0f2f5 50%, #ffffff 100%);
 }
 
 .bg-gradient-jema-lavender {
-  background: linear-gradient(135deg, #FFF5F8 0%, #F5F4FE 50%, #F0F2F5 100%);
+  background: linear-gradient(135deg, #fff5f8 0%, #f5f4fe 50%, #f0f2f5 100%);
 }
 
 /* JEMA: Dark gradient for video conferencing */

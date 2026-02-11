@@ -1,10 +1,10 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { HomePage, PreJoinPage, RoomPage } from './pages';
-import './index.css';
+import React from "react";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { HomePage, PreJoinPage, RoomPage } from "./pages";
+import "./index.css";
 
 function App() {
   return (

@@ -2,50 +2,156 @@
      Distributed under the license specified in the root directory of this project. -->
 <!doctype html>
 <html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no"
+    />
+    <meta name="theme-color" content="#7276d8" />
+    <meta name="color-scheme" content="dark" />
+    <meta
+      name="description"
+      content="Application de visioconférence P2P sécurisée et sans logs. Communiquez en direct avec chiffrement de bout en bout."
+    />
+    <meta name="keywords" content="visioconférence, video, appel, peer-to-peer, p2p, sécurisé, privacy" />
+    <meta name="author" content="Anima" />
+    <meta name="robots" content="index, follow" />
 
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#007AFF" />
-  <meta name="description" content="Visioconference P2P securisee et sans logs" />
-  
-  <!-- Apple-specific meta tags -->
-  <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Anima" />
-  
-  <!-- PWA -->
-  <link rel="manifest" href="/manifest.json" />
-  <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192x192.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512x512.png" />
-  <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
-  <link rel="apple-touch-icon" sizes="512x512" href="/icons/icon-512x512.png" />
-  
-  <!-- Preconnect pour PeerJS -->
-  <link rel="preconnect" href="https://cloud.peerjs.com" />
-  
-  <title>Anima - Visioconference P2P</title>
-</head>
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Anima - Visioconférence P2P" />
+    <meta property="og:description" content="Application de visioconférence P2P sécurisée et sans logs" />
+    <meta property="og:image" content="/icons/icon-512x512.png" />
+    <meta property="og:locale" content="fr_FR" />
 
-<body>
-  <div id="root"></div>
-  <script type="module" src="/src/main.tsx"></script>
-  
-  <!-- Service Worker -->
-  <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/service-worker.js')
-          .then(registration => {
-            console.log('[SW] Enregistre:', registration.scope);
-          })
-          .catch(error => {
-            console.log('[SW] Echec:', error);
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Anima - Visioconférence P2P" />
+    <meta name="twitter:description" content="Application de visioconférence P2P sécurisée et sans logs" />
+    <meta name="twitter:image" content="/icons/icon-512x512.png" />
+
+    <!-- Apple-specific meta tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta
+      name="apple-mobile-web-app-status-bar-style"
+      content="black-translucent"
+    />
+    <meta name="apple-mobile-web-app-title" content="Anima" />
+
+    <!-- Microsoft Tiles -->
+    <meta name="msapplication-TileColor" content="#7276d8" />
+    <meta name="msapplication-TileImage" content="/icons/icon-192x192.png" />
+    <meta name="msapplication-config" content="none" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icons/icon.svg" />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="192x192"
+      href="/icons/icon-192x192.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="512x512"
+      href="/icons/icon-512x512.png"
+    />
+    <link rel="apple-touch-icon" href="/icons/icon-192x192.png" />
+    <link
+      rel="apple-touch-icon"
+      sizes="512x512"
+      href="/icons/icon-512x512.png"
+    />
+
+    <!-- Preconnect pour PeerJS et autres services -->
+    <link rel="preconnect" href="https://cloud.peerjs.com" />
+    <link rel="preconnect" href="https://0.peerjs.com" />
+    <link rel="preconnect" href="https://1.peerjs.com" />
+
+    <!-- Preload des ressources critiques -->
+    <link rel="preload" href="/icons/icon.svg" as="image" type="image/svg+xml" />
+    <link rel="preload" href="/src/main.tsx" as="script" crossorigin />
+
+    <!-- DNS Prefetch -->
+    <link rel="dns-prefetch" href="https://cloud.peerjs.com" />
+
+    <title>Anima - Visioconférence P2P</title>
+
+    <!-- Script de détection précoce du mode hors ligne -->
+    <script>
+      // Détecter si l'application est en mode standalone (installée)
+      window.isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                            window.navigator.standalone === true;
+
+      // Détecter le mode hors ligne initial
+      window.initialOfflineState = !navigator.onLine;
+
+      // Marquer le début du chargement pour les métriques de performance
+      window.appStartTime = performance.now();
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div style="padding: 20px; text-align: center; font-family: sans-serif;">
+        <h1>JavaScript requis</h1>
+        <p>Anima nécessite JavaScript pour fonctionner. Veuillez l'activer dans votre navigateur.</p>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Service Worker avec gestion des mises à jour -->
+    <script>
+      (function() {
+        if ("serviceWorker" in navigator) {
+          window.addEventListener("load", function() {
+            navigator.serviceWorker
+              .register("/service-worker.js")
+              .then(function(registration) {
+                console.log("[SW] Enregistré:", registration.scope);
+
+                // Écouter les mises à jour
+                registration.addEventListener('updatefound', function() {
+                  const newWorker = registration.installing;
+                  console.log('[SW] Nouvelle version trouvée');
+
+                  newWorker.addEventListener('statechange', function() {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                      // Nouvelle version disponible
+                      console.log('[SW] Nouvelle version installée, prête pour activation');
+
+                      // Émettre un événement personnalisé
+                      window.dispatchEvent(new CustomEvent('sw-update-available', {
+                        detail: { registration: registration }
+                      }));
+                    }
+                  });
+                });
+              })
+              .catch(function(error) {
+                console.error("[SW] Échec de l'enregistrement:", error);
+              });
+
+            // Écouter les messages du service worker
+            navigator.serviceWorker.addEventListener('message', function(event) {
+              if (event.data && event.data.type === 'SW_UPDATE') {
+                console.log('[SW] Message reçu:', event.data);
+              }
+            });
           });
-      });
-    }
-  </script>
-</body>
 
+          // Gérer le contrôle du service worker
+          navigator.serviceWorker.addEventListener('controllerchange', function() {
+            console.log('[SW] Nouveau contrôleur, rechargement...');
+            // Optionnel : recharger la page pour utiliser le nouveau SW
+            // window.location.reload();
+          });
+        }
+      })();
+    </script>
+  </body>
 </html>

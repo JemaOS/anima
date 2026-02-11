@@ -1,11 +1,11 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
-import { ControlBar } from '../../components/room/ControlBar';
+import { describe, it, expect, vi } from "vitest";
+import { render, screen } from "@testing-library/react";
+import { ControlBar } from "../../components/room/ControlBar";
 
 // Skipping these tests because the current test environment crashes when encountering
 // React Hooks (useState) in this component.
 // Error: "Invalid hook call. Hooks can only be called inside of the body of a function component."
-describe.skip('ControlBar Component', () => {
+describe.skip("ControlBar Component", () => {
   const defaultProps = {
     audioEnabled: true,
     videoEnabled: true,
@@ -25,7 +25,7 @@ describe.skip('ControlBar Component', () => {
     onOpenReactions: vi.fn(),
   };
 
-  it('renders correctly', () => {
+  it("renders correctly", () => {
     render(<ControlBar {...defaultProps} />);
     // Note: This assertion might need adjustment based on actual aria-labels
     // but the test is skipped anyway.

@@ -1,17 +1,22 @@
 /**
  * E2EE (End-to-End Encryption) Service for Anima Video Conferencing
- * 
+ *
  * Military-grade encryption implementation using:
  * - X25519 for key exchange (Curve25519 Diffie-Hellman)
  * - XSalsa20-Poly1305 for authenticated encryption (256-bit key)
  * - HKDF-like key derivation for session keys
  * - Perfect Forward Secrecy through ephemeral key pairs
- * 
+ *
  * Security Level: AES-256 equivalent (256-bit security)
  */
 
-import nacl from 'tweetnacl';
-import { encodeBase64, decodeBase64, encodeUTF8, decodeUTF8 } from 'tweetnacl-util';
+import nacl from "tweetnacl";
+import {
+  encodeBase64,
+  decodeBase64,
+  encodeUTF8,
+  decodeUTF8,
+} from "tweetnacl-util";
 
 // Types
 export interface KeyPair {
@@ -20,8 +25,8 @@ export interface KeyPair {
 }
 
 export interface EncryptedMessage {
-  ciphertext: string;  // Base64 encoded
-  nonce: string;       // Base64 encoded
+  ciphertext: string; // Base64 encoded
+  nonce: string; // Base64 encoded
   senderPublicKey: string; // Base64 encoded
 }
 
@@ -52,7 +57,9 @@ export class E2EEncryption {
   private localKeyPair: KeyPair | null = null;
   private sessionKeys: Map<string, SessionKeys> = new Map();
   private keyRotationTimers: Map<string, NodeJS.Timeout> = new Map();
-  private onKeyRotation: ((peerId: string, newPublicKey: string) => void) | null = null;
+  private onKeyRotation:
+    | ((peerId: string, newPublicKey: string) => void)
+    | null = null;
 
   constructor() {
     // Generate initial key pair on instantiation
@@ -66,7 +73,7 @@ export class E2EEncryption {
   generateKeyPair(): KeyPair {
     const keyPair = nacl.box.keyPair();
     this.localKeyPair = keyPair;
-    console.log('[E2EE] Generated new X25519 key pair');
+    console.log("[E2EE] Generated new X25519 key pair");
     return keyPair;
   }
 
@@ -93,7 +100,7 @@ export class E2EEncryption {
   /**
    * Establish a secure session with a peer using X25519 key exchange
    * This creates a shared secret that only the two parties know
-   * 
+   *
    * @param peerId - Unique identifier for the peer
    * @param peerPublicKey - Peer's public key (Base64 encoded)
    * @returns Session ID for this secure channel
@@ -104,13 +111,16 @@ export class E2EEncryption {
     }
 
     const remotePublicKey = decodeBase64(peerPublicKey);
-    
+
     // Compute shared secret using X25519 Diffie-Hellman
     // This is the core of the key exchange - both parties arrive at the same shared secret
-    const sharedKey = nacl.box.before(remotePublicKey, this.localKeyPair!.secretKey);
-    
+    const sharedKey = nacl.box.before(
+      remotePublicKey,
+      this.localKeyPair!.secretKey,
+    );
+
     const sessionId = this.generateSessionId();
-    
+
     const sessionKeys: SessionKeys = {
       sharedKey,
       localKeyPair: { ...this.localKeyPair! },
@@ -120,14 +130,14 @@ export class E2EEncryption {
     };
 
     this.sessionKeys.set(peerId, sessionKeys);
-    
+
     // Start key rotation timer for Perfect Forward Secrecy
     this.startKeyRotation(peerId);
-    
+
     console.log(`[E2EE] Established secure session with peer ${peerId}`);
     console.log(`[E2EE] Session ID: ${sessionId}`);
     console.log(`[E2EE] Encryption: XSalsa20-Poly1305 (256-bit)`);
-    
+
     return sessionId;
   }
 
@@ -155,7 +165,9 @@ export class E2EEncryption {
     }, KEY_ROTATION_INTERVAL);
 
     this.keyRotationTimers.set(peerId, timer);
-    console.log(`[E2EE] Key rotation enabled for peer ${peerId} (every ${KEY_ROTATION_INTERVAL / 1000}s)`);
+    console.log(
+      `[E2EE] Key rotation enabled for peer ${peerId} (every ${KEY_ROTATION_INTERVAL / 1000}s)`,
+    );
   }
 
   /**
@@ -168,17 +180,20 @@ export class E2EEncryption {
 
     // Generate new ephemeral key pair
     const newKeyPair = nacl.box.keyPair();
-    
+
     // Compute new shared secret with peer's public key
-    const newSharedKey = nacl.box.before(session.remotePublicKey, newKeyPair.secretKey);
-    
+    const newSharedKey = nacl.box.before(
+      session.remotePublicKey,
+      newKeyPair.secretKey,
+    );
+
     // Update session
     session.sharedKey = newSharedKey;
     session.localKeyPair = newKeyPair;
     session.createdAt = Date.now();
-    
+
     console.log(`[E2EE] Keys rotated for peer ${peerId} (PFS)`);
-    
+
     // Notify callback to send new public key to peer
     if (this.onKeyRotation) {
       this.onKeyRotation(peerId, encodeBase64(newKeyPair.publicKey));
@@ -189,7 +204,9 @@ export class E2EEncryption {
    * Set callback for key rotation events
    * Used to notify peers of new public keys
    */
-  setKeyRotationCallback(callback: (peerId: string, newPublicKey: string) => void): void {
+  setKeyRotationCallback(
+    callback: (peerId: string, newPublicKey: string) => void,
+  ): void {
     this.onKeyRotation = callback;
   }
 
@@ -204,20 +221,23 @@ export class E2EEncryption {
     }
 
     const remotePublicKey = decodeBase64(newPublicKey);
-    
+
     // Recompute shared secret with new peer public key
-    const newSharedKey = nacl.box.before(remotePublicKey, session.localKeyPair.secretKey);
-    
+    const newSharedKey = nacl.box.before(
+      remotePublicKey,
+      session.localKeyPair.secretKey,
+    );
+
     session.remotePublicKey = remotePublicKey;
     session.sharedKey = newSharedKey;
-    
+
     console.log(`[E2EE] Updated peer ${peerId} public key`);
   }
 
   /**
    * Encrypt a message using XSalsa20-Poly1305
    * This provides authenticated encryption (confidentiality + integrity)
-   * 
+   *
    * @param peerId - Peer to encrypt for
    * @param plaintext - Message to encrypt (string)
    * @returns Encrypted message with nonce
@@ -231,13 +251,13 @@ export class E2EEncryption {
 
     // Generate random nonce (24 bytes)
     const nonce = nacl.randomBytes(NONCE_LENGTH);
-    
+
     // Convert plaintext to bytes
     const messageBytes = decodeUTF8(plaintext);
-    
+
     // Encrypt using precomputed shared key (XSalsa20-Poly1305)
     const ciphertext = nacl.box.after(messageBytes, nonce, session.sharedKey);
-    
+
     return {
       ciphertext: encodeBase64(ciphertext),
       nonce: encodeBase64(nonce),
@@ -248,7 +268,7 @@ export class E2EEncryption {
   /**
    * Decrypt a message using XSalsa20-Poly1305
    * Verifies authenticity and integrity before returning plaintext
-   * 
+   *
    * @param peerId - Peer who sent the message
    * @param encrypted - Encrypted message object
    * @returns Decrypted plaintext or null if decryption fails
@@ -263,15 +283,21 @@ export class E2EEncryption {
     try {
       const ciphertext = decodeBase64(encrypted.ciphertext);
       const nonce = decodeBase64(encrypted.nonce);
-      
+
       // Decrypt using precomputed shared key
-      const decrypted = nacl.box.open.after(ciphertext, nonce, session.sharedKey);
-      
+      const decrypted = nacl.box.open.after(
+        ciphertext,
+        nonce,
+        session.sharedKey,
+      );
+
       if (!decrypted) {
-        console.error(`[E2EE] Decryption failed - message may have been tampered with`);
+        console.error(
+          `[E2EE] Decryption failed - message may have been tampered with`,
+        );
         return null;
       }
-      
+
       return encodeUTF8(decrypted);
     } catch (error) {
       console.error(`[E2EE] Decryption error:`, error);
@@ -282,7 +308,7 @@ export class E2EEncryption {
   /**
    * Encrypt binary data (for video/audio frames)
    * Optimized for real-time media encryption
-   * 
+   *
    * @param peerId - Peer to encrypt for
    * @param data - Raw binary data to encrypt
    * @returns Encrypted frame with nonce
@@ -295,11 +321,11 @@ export class E2EEncryption {
 
     // Generate random nonce
     const nonce = nacl.randomBytes(NONCE_LENGTH);
-    
+
     // Encrypt using secretbox (symmetric encryption with shared key)
     // This is faster than box for bulk data encryption
     const encrypted = nacl.secretbox(data, nonce, session.sharedKey);
-    
+
     return {
       data: encrypted,
       nonce,
@@ -309,7 +335,7 @@ export class E2EEncryption {
 
   /**
    * Decrypt binary data (for video/audio frames)
-   * 
+   *
    * @param peerId - Peer who sent the frame
    * @param encrypted - Encrypted frame
    * @returns Decrypted binary data or null
@@ -321,7 +347,11 @@ export class E2EEncryption {
     }
 
     try {
-      const decrypted = nacl.secretbox.open(encrypted.data, encrypted.nonce, session.sharedKey);
+      const decrypted = nacl.secretbox.open(
+        encrypted.data,
+        encrypted.nonce,
+        session.sharedKey,
+      );
       return decrypted;
     } catch (error) {
       console.error(`[E2EE] Frame decryption error:`, error);
@@ -365,19 +395,19 @@ export class E2EEncryption {
   /**
    * Get session info for debugging/display
    */
-  getSessionInfo(peerId: string): { 
-    sessionId: string; 
-    createdAt: number; 
+  getSessionInfo(peerId: string): {
+    sessionId: string;
+    createdAt: number;
     algorithm: string;
     keyLength: number;
   } | null {
     const session = this.sessionKeys.get(peerId);
     if (!session) return null;
-    
+
     return {
       sessionId: session.sessionId,
       createdAt: session.createdAt,
-      algorithm: 'XSalsa20-Poly1305',
+      algorithm: "XSalsa20-Poly1305",
       keyLength: 256, // bits
     };
   }
@@ -420,7 +450,7 @@ export class E2EEncryption {
       this.localKeyPair = null;
     }
 
-    console.log('[E2EE] Encryption manager destroyed');
+    console.log("[E2EE] Encryption manager destroyed");
   }
 
   /**
@@ -436,8 +466,8 @@ export class E2EEncryption {
   } {
     return {
       enabled: true,
-      algorithm: 'XSalsa20-Poly1305',
-      keyExchange: 'X25519 (Curve25519)',
+      algorithm: "XSalsa20-Poly1305",
+      keyExchange: "X25519 (Curve25519)",
       keyLength: 256,
       pfs: true, // Perfect Forward Secrecy
       activeSessions: this.sessionKeys.size,
