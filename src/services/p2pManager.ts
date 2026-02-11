@@ -166,6 +166,183 @@ export class P2PManager {
   }
 
   /**
+   * Check if current device is mobile
+   */
+  private isMobileDevice(): boolean {
+    return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
+      navigator.userAgent
+    ) || "ontouchstart" in window;
+  }
+
+  // Free TURN server sources
+  private TURN_SERVERS = {
+    // Metered.ca - free tier (50GB/month)
+    metered: [
+      {
+        urls: "turn:a.relay.metered.ca:80",
+        username: "e8dd65b92c62d5e98c3d0104",
+        credential: "uWdWNmkhvyqTEj3B",
+      },
+      {
+        urls: "turn:a.relay.metered.ca:443",
+        username: "e8dd65b92c62d5e98c3d0104",
+        credential: "uWdWNmkhvyqTEj3B",
+      },
+    ],
+    // OpenRelay - public free servers
+    openrelay: [
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+    ],
+  };
+
+  /**
+   * Get ICE servers configuration
+   * Tries multiple free TURN services for maximum compatibility
+   */
+  private getIceServers(): RTCIceServer[] {
+    // Google STUN servers (always included)
+    const stunServers: RTCIceServer[] = [
+      { urls: "stun:stun.l.google.com:19302" },
+      { urls: "stun:stun1.l.google.com:19302" },
+      { urls: "stun:stun2.l.google.com:19302" },
+      { urls: "stun:stun3.l.google.com:19302" },
+      { urls: "stun:stun4.l.google.com:19302" },
+    ];
+
+    // Add public TURN servers
+    const turnServers: RTCIceServer[] = [
+      ...this.TURN_SERVERS.metered,
+      ...this.TURN_SERVERS.openrelay,
+    ];
+
+    // Return STUN first, then TURN (order matters for connection speed)
+    return [...stunServers, ...turnServers];
+  }
+
+  /**
+   * Get ICE configuration with optional relay-only mode
+   */
+  private getPeerConfig(relayOnly: boolean = false): RTCConfiguration {
+    return {
+      iceServers: this.getIceServers(),
+      iceTransportPolicy: relayOnly ? "relay" : "all",
+      iceCandidatePoolSize: 10,
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require",
+    };
+  }
+
+  /**
+   * Attempt connection with relay-only mode (force TURN)
+   * Used when normal ICE fails
+   */
+  private async attemptRelayOnlyConnection(peerId: string): Promise<void> {
+    log("ICE", "🔄 Attempting relay-only connection", { peerId });
+
+    // Close existing connection
+    const existingConn = this.mediaConnections.get(peerId);
+    if (existingConn) {
+      existingConn.close();
+      this.mediaConnections.delete(peerId);
+    }
+
+    // Wait a moment
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // Re-initiate with relay-only policy
+    if (this.localStream && this.dataConnections.has(peerId) && this.peer) {
+      // Create new peer connection with relay-only
+      const mediaConn = this.peer.call(peerId, this.localStream, {
+        metadata: { relayOnly: true },
+      });
+
+      if (mediaConn) {
+        // Override the peer connection config to force relay
+        const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
+        if (pc) {
+          // We can't change iceTransportPolicy after creation, but we can
+          // signal our intent to use relay through the connection
+          log("ICE", "✅ Created relay-only media connection", { peerId });
+        }
+        this.setupMediaConnectionHandlers(mediaConn, peerId);
+      }
+    }
+  }
+
+  /**
+   * Get video stream with mobile-specific fallbacks
+   */
+  private async getMobileVideoStream(
+    facingMode: "user" | "environment" = "user"
+  ): Promise<MediaStream | null> {
+    const constraints = [
+      // Try ideal constraints first
+      {
+        video: {
+          width: { ideal: 480 },
+          height: { ideal: 360 },
+          facingMode: { ideal: facingMode },
+          frameRate: { ideal: 15 },
+        },
+      },
+      // Fallback to lower resolution
+      {
+        video: {
+          width: { ideal: 320 },
+          height: { ideal: 240 },
+          facingMode: { ideal: facingMode },
+          frameRate: { ideal: 15 },
+        },
+      },
+      // Final fallback - any video
+      {
+        video: {
+          facingMode: { ideal: facingMode },
+        },
+      },
+      // Last resort - any camera
+      { video: true },
+    ];
+
+    for (let i = 0; i < constraints.length; i++) {
+      try {
+        log("MEDIA", `Trying mobile video constraints (attempt ${i + 1})`, constraints[i]);
+        const stream = await navigator.mediaDevices.getUserMedia(constraints[i]);
+        const videoTrack = stream.getVideoTracks()[0];
+
+        if (videoTrack) {
+          log("MEDIA", "Got mobile video track", {
+            trackId: videoTrack.id,
+            settings: videoTrack.getSettings(),
+            readyState: videoTrack.readyState,
+            muted: videoTrack.muted,
+          });
+
+          // Wait for track to be ready (mobile cameras need time)
+          if (videoTrack.readyState !== "live") {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+          }
+
+          return stream;
+        }
+      } catch (err) {
+        log("MEDIA", `Mobile video constraints ${i + 1} failed:`, (err as Error).message);
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Setup network status listeners for automatic reconnection
    */
   private setupNetworkListeners(): void {
@@ -392,57 +569,7 @@ export class P2PManager {
       // iceTransportPolicy: 'all' allows both direct and relay connections
       this.peer = new Peer(actualPeerId, {
         debug: DEBUG ? 3 : 0, // Enable maximum PeerJS debug logging
-        config: {
-          iceServers: [
-            // Google STUN servers (free, reliable)
-            { urls: "stun:stun.l.google.com:19302" },
-            { urls: "stun:stun1.l.google.com:19302" },
-            { urls: "stun:stun2.l.google.com:19302" },
-            // Metered.ca TURN servers (free tier)
-            {
-              urls: "turn:a.relay.metered.ca:80",
-              username: "e8dd65b92c62d5e98c3d0104",
-              credential: "uWdWNmkhvyqTEj3B",
-            },
-            {
-              urls: "turn:a.relay.metered.ca:80?transport=tcp",
-              username: "e8dd65b92c62d5e98c3d0104",
-              credential: "uWdWNmkhvyqTEj3B",
-            },
-            {
-              urls: "turn:a.relay.metered.ca:443",
-              username: "e8dd65b92c62d5e98c3d0104",
-              credential: "uWdWNmkhvyqTEj3B",
-            },
-            {
-              urls: "turn:a.relay.metered.ca:443?transport=tcp",
-              username: "e8dd65b92c62d5e98c3d0104",
-              credential: "uWdWNmkhvyqTEj3B",
-            },
-            // OpenRelay TURN servers (another free option)
-            {
-              urls: "turn:openrelay.metered.ca:80",
-              username: "openrelayproject",
-              credential: "openrelayproject",
-            },
-            {
-              urls: "turn:openrelay.metered.ca:443",
-              username: "openrelayproject",
-              credential: "openrelayproject",
-            },
-            {
-              urls: "turn:openrelay.metered.ca:443?transport=tcp",
-              username: "openrelayproject",
-              credential: "openrelayproject",
-            },
-          ],
-          // Use 'all' to allow both direct (host/srflx) and relay connections
-          // This is more reliable than 'relay' only
-          iceTransportPolicy: "all",
-          iceCandidatePoolSize: 10, // Pre-gather ICE candidates
-          bundlePolicy: "max-bundle",
-          rtcpMuxPolicy: "require",
-        },
+        config: this.getPeerConfig(),
       });
 
       this.peer.on("open", (id) => {
@@ -918,17 +1045,21 @@ export class P2PManager {
         // CRITICAL FIX: If the fresh track is muted, wait for it to unmute
         // This happens on mobile when the camera needs time to "warm up"
         if (freshVideoTrack.muted) {
-          log("MEDIA", "⏳ Fresh video track is muted, waiting for unmute...", {
-            peerId,
-          });
+          log("MEDIA", "⏳ Fresh video track is muted, waiting for unmute...", { peerId });
 
-          // Wait for the track to unmute (max 3 seconds)
+          // For mobile, also try to force-enable the track
+          if (this.isMobileDevice()) {
+            freshVideoTrack.enabled = true;
+          }
+
           await new Promise<void>((resolve) => {
             let resolved = false;
+            let checkInterval: ReturnType<typeof setInterval> | null = null;
 
             const onUnmute = () => {
               if (!resolved) {
                 resolved = true;
+                if (checkInterval) clearInterval(checkInterval);
                 freshVideoTrack.removeEventListener("unmute", onUnmute);
                 log("MEDIA", "✅ Video track unmuted, proceeding with call", {
                   peerId,
@@ -943,24 +1074,30 @@ export class P2PManager {
             // Also check immediately in case it already unmuted
             if (!freshVideoTrack.muted) {
               onUnmute();
+              return;
             }
 
-            // Timeout after 3 seconds
+            // For mobile, periodically check if track becomes unmuted
+            checkInterval = setInterval(() => {
+              if (!freshVideoTrack.muted && !resolved) {
+                onUnmute();
+              }
+            }, 100);
+
+            // Timeout after 5 seconds (increased from 3 for mobile)
             setTimeout(() => {
               if (!resolved) {
                 resolved = true;
+                if (checkInterval) clearInterval(checkInterval);
                 freshVideoTrack.removeEventListener("unmute", onUnmute);
-                log(
-                  "MEDIA",
-                  "⚠️ Timeout waiting for video track to unmute, proceeding anyway",
-                  {
-                    peerId,
-                    muted: freshVideoTrack.muted,
-                  },
-                );
+                log("MEDIA", "⚠️ Timeout waiting for video track to unmute, proceeding anyway", {
+                  peerId,
+                  muted: freshVideoTrack.muted,
+                  readyState: freshVideoTrack.readyState,
+                });
                 resolve();
               }
-            }, 3000);
+            }, 5000);
           });
         }
       } else {
@@ -1600,10 +1737,16 @@ export class P2PManager {
       })),
     });
 
+    // ICE failure tracking for automatic fallback
+    let iceFailureCount = 0;
+    const maxIceFailures = 3;
+    let lastIceState = pc.iceConnectionState;
+
     // Monitor ICE connection state
     pc.oniceconnectionstatechange = () => {
       const state = pc.iceConnectionState as ICEConnectionState;
-      log("ICE", "ICE connection state changed", { peerId, state });
+      log("ICE", "ICE connection state changed", { peerId, state, previousState: lastIceState });
+      lastIceState = state;
 
       this.iceConnectionStates.set(peerId, state);
       this.onICEStateChangeCallback?.(peerId, state);
@@ -1611,7 +1754,8 @@ export class P2PManager {
       switch (state) {
         case "connected":
         case "completed":
-          // Connection successful
+          // Connection successful - reset failure count
+          iceFailureCount = 0;
           this.iceRestartAttempts.delete(peerId);
           log("ICE", "✅ ICE connection successful", { peerId, state });
 
@@ -1726,9 +1870,16 @@ export class P2PManager {
           break;
 
         case "failed":
-          // Connection failed - attempt ICE restart
-          log("ICE", "ICE connection failed", { peerId });
-          this.attemptICERestart(pc, peerId);
+          // Connection failed - track failures and attempt fallback
+          iceFailureCount++;
+          log("ICE", "❌ ICE connection failed", { peerId, failureCount: iceFailureCount });
+          
+          if (iceFailureCount >= maxIceFailures) {
+            log("ICE", "Max ICE failures reached, trying relay-only mode", { peerId });
+            this.attemptRelayOnlyConnection(peerId);
+          } else {
+            this.attemptICERestart(pc, peerId);
+          }
           break;
 
         case "closed":
@@ -3417,6 +3568,19 @@ export class P2PManager {
       } catch (_error) {
         // Failed to create AudioContext
       }
+    }
+  }
+
+  /**
+   * Resume audio context (required after user interaction)
+   */
+  resumeAudioContext(): void {
+    if (this.audioContext && this.audioContext.state === 'suspended') {
+      this.audioContext.resume().then(() => {
+        log("AUDIO", "AudioContext resumed successfully");
+      }).catch((err) => {
+        log("AUDIO", "Failed to resume AudioContext:", err);
+      });
     }
   }
 

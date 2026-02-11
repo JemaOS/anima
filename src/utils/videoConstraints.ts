@@ -8,12 +8,12 @@ export interface VideoQualityPreset {
 
 // Device-based presets (auto-detection)
 export const VIDEO_PRESETS: Record<string, VideoQualityPreset> = {
-  // For mobile devices - balanced quality/performance
+  // For mobile devices - more conservative for better compatibility
   mobile: {
-    width: 640,
-    height: 480,
-    frameRate: 24,
-    bitrate: 600000, // 600 kbps
+    width: 480,      // Reduced from 640
+    height: 360,     // Reduced from 480
+    frameRate: 15,   // Reduced from 24 for better compatibility
+    bitrate: 400000, // Reduced from 600 kbps
   },
   // For tablets - higher quality
   tablet: {

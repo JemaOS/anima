@@ -1,7 +1,7 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React, { useState, useCallback, memo, useMemo } from "react";
+import React, { useState, useCallback, memo, useMemo, useEffect } from "react";
 import { Icon } from "@/components/ui";
 
 interface ControlBarProps {
@@ -92,6 +92,7 @@ const ControlButton = memo(function ControlButton({
   variant = "neutral",
   isHidden = false,
   isActive = false,
+  isCompact = false,
 }: {
   onClick: () => void;
   icon: string;
@@ -99,9 +100,14 @@ const ControlButton = memo(function ControlButton({
   variant?: "neutral" | "danger" | "primary" | "warning";
   isHidden?: boolean;
   isActive?: boolean;
+  isCompact?: boolean;
 }) {
-  const baseClasses =
-    "w-8 h-8 min-[360px]:w-9 min-[360px]:h-9 min-[400px]:w-10 min-[400px]:h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
+  const baseClasses = useMemo(() => {
+    if (isCompact) {
+      return "w-7 h-7 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
+    }
+    return "w-8 h-8 min-[360px]:w-9 min-[360px]:h-9 min-[400px]:w-10 min-[400px]:h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0";
+  }, [isCompact]);
 
   const variantClasses = useMemo(() => {
     switch (variant) {
@@ -158,6 +164,19 @@ export const ControlBar = memo(function ControlBar({
   // Mémoriser la détection mobile pour éviter les recalculs
   const isMobile = useMemo(() => isMobileDevice(), []);
 
+  // Track screen width for responsive button visibility
+  const [screenWidth, setScreenWidth] = useState(window.innerWidth);
+
+  useEffect(() => {
+    const handleResize = () => setScreenWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Determine which buttons to show based on screen size
+  const isUltraSmall = screenWidth < 360;  // iPhone 5s, SE (1st gen)
+  const isSmall = screenWidth < 400;       // Small phones
+
   // Callbacks mémoïsés
   const handleToggleScreenShare = useCallback(() => {
     if (isScreenSharing) {
@@ -177,7 +196,12 @@ export const ControlBar = memo(function ControlBar({
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)] sm:pb-0 sm:bottom-4 sm:left-1/2 sm:-translate-x-1/2 sm:right-auto">
-      <div className="bg-neutral-800/95 backdrop-blur-md sm:rounded-full shadow-lg px-1 min-[360px]:px-1.5 min-[400px]:px-2 sm:px-3 py-1 min-[360px]:py-1.5 min-[400px]:py-2 flex items-center justify-center gap-0.5 min-[400px]:gap-1 sm:gap-1.5">
+      <div className={`
+        bg-neutral-800/95 backdrop-blur-md
+        ${isUltraSmall ? 'rounded-t-lg px-1 py-1' : 'sm:rounded-full px-1 min-[360px]:px-1.5 min-[400px]:px-2 sm:px-3 py-1 min-[360px]:py-1.5 min-[400px]:py-2'}
+        shadow-lg flex items-center justify-center gap-0.5 min-[400px]:gap-1 sm:gap-1.5
+        ${isUltraSmall ? 'flex-wrap' : ''}
+      `}>
         {/* Micro - toujours visible */}
         <ControlButton
           onClick={onToggleAudio}
@@ -185,6 +209,7 @@ export const ControlBar = memo(function ControlBar({
           title={audioEnabled ? "Couper le micro" : "Activer le micro"}
           variant={audioEnabled ? "neutral" : "danger"}
           isActive={!audioEnabled}
+          isCompact={isUltraSmall}
         />
 
         {/* Caméra - toujours visible */}
@@ -194,10 +219,11 @@ export const ControlBar = memo(function ControlBar({
           title={videoEnabled ? "Désactiver la caméra" : "Activer la caméra"}
           variant={videoEnabled ? "neutral" : "danger"}
           isActive={!videoEnabled}
+          isCompact={isUltraSmall}
         />
 
         {/* Changer de caméra - visible sur mobile quand vidéo active, caché sur très petits écrans */}
-        {onSwitchCamera && isMobile && videoEnabled && (
+        {!isUltraSmall && onSwitchCamera && isMobile && videoEnabled && (
           <ControlButton
             onClick={onSwitchCamera}
             icon="flip-camera"
@@ -205,45 +231,50 @@ export const ControlBar = memo(function ControlBar({
           />
         )}
 
-        {/* Partage d'écran - TOUJOURS visible */}
-        <ControlButton
-          onClick={handleToggleScreenShare}
-          icon="present-to-all"
-          title={isScreenSharing ? "Arrêter le partage" : "Partager l'écran"}
-          variant="primary"
-          isActive={isScreenSharing}
-        />
+        {/* Partage d'écran - visible on all but ultra-small */}
+        {!isUltraSmall && (
+          <ControlButton
+            onClick={handleToggleScreenShare}
+            icon="present-to-all"
+            title={isScreenSharing ? "Arrêter" : "Partager"}
+            variant="primary"
+            isActive={isScreenSharing}
+          />
+        )}
 
-        {/* Réactions - caché sur petits écrans (<640px) */}
-        <ReactionsButton onOpenReactions={onOpenReactions} />
+        {/* Réactions - hidden on small screens */}
+        {!isSmall && <ReactionsButton onOpenReactions={onOpenReactions} />}
 
-        {/* Main levée - caché sur petits écrans (<640px) */}
-        <ControlButton
-          onClick={handleToggleHand}
-          icon="pan-tool"
-          title={handRaised ? "Baisser la main" : "Lever la main"}
-          variant="warning"
-          isActive={handRaised}
-          isHidden={false}
-        />
+        {/* Main levée - hidden on ultra-small */}
+        {!isUltraSmall && (
+          <ControlButton
+            onClick={handleToggleHand}
+            icon="pan-tool"
+            title={handRaised ? "Baisser" : "Lever"}
+            variant="warning"
+            isActive={handRaised}
+          />
+        )}
 
-        {/* Discussion - toujours visible */}
+        {/* Discussion - toujours visible but compact on small */}
         <ControlButton
           onClick={onOpenChat}
           icon="chat"
           title="Discussion"
+          isCompact={isUltraSmall}
         />
 
-        {/* Participants - caché sur petits écrans (<640px) */}
-        <ControlButton
-          onClick={onOpenParticipants}
-          icon="people"
-          title="Participants"
-          isHidden={false}
-        />
+        {/* Participants - hidden on small */}
+        {!isSmall && (
+          <ControlButton
+            onClick={onOpenParticipants}
+            icon="people"
+            title="Participants"
+          />
+        )}
 
-        {/* Paramètres - TOUJOURS visible */}
-        {onOpenSettings && (
+        {/* Paramètres - only on larger screens */}
+        {!isSmall && onOpenSettings && (
           <ControlButton
             onClick={onOpenSettings}
             icon="settings"
@@ -252,14 +283,15 @@ export const ControlBar = memo(function ControlBar({
         )}
 
         {/* Séparateur avant quitter */}
-        <div className="w-px h-4 min-[360px]:h-5 bg-neutral-600/50 mx-0.5 shrink-0" />
+        {!isUltraSmall && <div className="w-px h-4 min-[360px]:h-5 bg-neutral-600/50 mx-0.5 shrink-0" />}
 
         {/* Quitter - toujours visible */}
         <ControlButton
           onClick={onLeave}
           icon="call-end"
-          title="Quitter la réunion"
+          title="Quitter"
           variant="danger"
+          isCompact={isUltraSmall}
         />
       </div>
     </div>

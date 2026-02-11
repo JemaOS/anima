@@ -15,7 +15,7 @@ interface VideoGridProps {
 
 // Hook personnalisé pour détecter la taille de l'écran - optimisé
 function useScreenSize() {
-  const [screenSize, setScreenSize] = useState<"xs" | "sm" | "md" | "lg">("md");
+  const [screenSize, setScreenSize] = useState<"xxs" | "xs" | "sm" | "md" | "lg" | "foldable">("md");
 
   useEffect(() => {
     // Utiliser requestAnimationFrame pour éviter les recalculs excessifs
@@ -30,6 +30,7 @@ function useScreenSize() {
         rafId = null;
         const width = window.innerWidth;
         const height = window.innerHeight;
+        const aspectRatio = width / height;
 
         // Ne mettre à jour que si la taille a significativement changé
         if (Math.abs(width - lastWidth) < 20 && Math.abs(height - lastHeight) < 20) {
@@ -39,8 +40,17 @@ function useScreenSize() {
         lastWidth = width;
         lastHeight = height;
 
-        // Consider both width and height for mobile detection
-        if (width < 380 || (width < 500 && height < 700)) {
+        // Detect foldable devices (Honor Magic V3, Samsung Fold, etc.)
+        // These typically have unusual aspect ratios when unfolded
+        const isFoldable =
+          /Magic V|Fold|Flip/i.test(navigator.userAgent) ||
+          (width > 700 && width < 900 && aspectRatio > 0.8 && aspectRatio < 1.2);
+
+        if (isFoldable) {
+          setScreenSize("foldable");
+        } else if (width < 340) {
+          setScreenSize("xxs"); // iPhone 5s, SE (1st gen)
+        } else if (width < 380 || (width < 500 && height < 700)) {
           setScreenSize("xs");
         } else if (width < 640) {
           setScreenSize("sm");
@@ -147,6 +157,14 @@ export const VideoGrid = memo(function VideoGrid({
 
   // Determine grid layout based on participant count AND screen size - mémoïsé
   const layout = useMemo(() => {
+    // For ultra-small screens (iPhone 5s - 320px)
+    if (screenSize === "xxs") {
+      if (count === 1) return { cols: 1, rows: 1 };
+      if (count === 2) return { cols: 1, rows: 2 };
+      if (count <= 4) return { cols: 2, rows: 2 };
+      return { cols: 2, rows: Math.ceil(count / 2) };
+    }
+
     // For very small screens (4-5 inch phones)
     if (screenSize === "xs") {
       if (count === 1) return { cols: 1, rows: 1 };
@@ -163,6 +181,15 @@ export const VideoGrid = memo(function VideoGrid({
       if (count <= 4) return { cols: 2, rows: 2 };
       if (count <= 6) return { cols: 2, rows: 3 };
       return { cols: 2, rows: 4 };
+    }
+
+    // For foldable devices (Honor Magic V3, etc.)
+    if (screenSize === "foldable") {
+      if (count === 1) return { cols: 1, rows: 1 };
+      if (count === 2) return { cols: 2, rows: 1 };
+      if (count <= 4) return { cols: 2, rows: 2 };
+      if (count <= 6) return { cols: 3, rows: 2 };
+      return { cols: 3, rows: 3 };
     }
 
     // For medium screens (6-8 inch phones/tablets)
@@ -199,13 +226,19 @@ export const VideoGrid = memo(function VideoGrid({
     const { cols, rows } = layout;
     const actualRows = Math.ceil(count / cols);
 
+    const gap =
+      screenSize === "xxs" ? "2px" :
+      screenSize === "xs" ? "4px" :
+      screenSize === "sm" ? "6px" : "8px";
+
     return {
       display: "grid" as const,
       gridTemplateColumns: `repeat(${cols}, 1fr)`,
       gridTemplateRows: `repeat(${actualRows}, 1fr)`,
-      gap: screenSize === "xs" ? "4px" : screenSize === "sm" ? "6px" : "8px",
+      gap,
       height: "100%",
       width: "100%",
+      padding: screenSize === "xxs" ? "2px" : undefined,
     };
   }, [layout, count, screenSize]);
 

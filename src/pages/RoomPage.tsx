@@ -753,7 +753,7 @@ export function RoomPage() {
             })),
         });
 
-        // Ensure audio tracks are enabled on the stream BEFORE dispatching
+        // CRITICAL FIX: Ensure all tracks are enabled before creating new stream
         stream.getAudioTracks().forEach((track) => {
           console.log("[RoomPage] 🔊 Audio track state before enable:", {
             id: track.id,
@@ -770,7 +770,6 @@ export function RoomPage() {
           });
         });
 
-        // Ensure video tracks are enabled on the stream BEFORE dispatching
         stream.getVideoTracks().forEach((track) => {
           console.log("[RoomPage] 📹 Video track state before enable:", {
             id: track.id,
@@ -787,9 +786,13 @@ export function RoomPage() {
           });
         });
 
+        // CRITICAL FIX: Create a new MediaStream to force React re-render
+        // This ensures VideoTile receives a new stream reference
+        const streamWithEnabledTracks = new MediaStream(stream.getTracks());
+
         dispatchParticipants({
           type: "SET_STREAM",
-          payload: { id: peerId, stream },
+          payload: { id: peerId, stream: streamWithEnabledTracks },
         });
 
         // CRITICAL FIX: Also update videoEnabled based on whether we have a video track
@@ -923,6 +926,15 @@ export function RoomPage() {
           payload: { id: peerId, audioLevel: level },
         });
       });
+
+      // CRITICAL FIX: Resume audio context on user interaction
+      const resumeAudioContext = () => {
+        manager.resumeAudioContext?.();
+      };
+
+      // Resume audio context on first user interaction
+      document.addEventListener('click', resumeAudioContext, { once: true });
+      document.addEventListener('touchstart', resumeAudioContext, { once: true });
 
       // Connection quality callback for network indicators
       manager.onConnectionQuality((peerId, quality) => {

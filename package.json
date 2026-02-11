@@ -4,16 +4,16 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "pnpm install --prefer-offline && vite",
-    "build": "pnpm install --prefer-offline && tsc -b && vite build",
-    "build:prod": "pnpm install --prefer-offline && tsc -b && vite build",
-    "lint": "pnpm install --prefer-offline && eslint .",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "build:prod": "tsc -b && vite build",
+    "lint": "eslint .",
     "test": "vitest",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
-    "preview": "pnpm install --prefer-offline && vite preview",
-    "install-deps": "pnpm install --prefer-offline",
-    "clean": "node -e \"const fs=require('fs');const path=require('path');['node_modules','.pnpm-store','pnpm-lock.yaml'].forEach(p=>{try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}})\" && pnpm store prune"
+    "preview": "vite preview",
+    "install-deps": "npm install",
+    "clean": "node -e \"const fs=require('fs');const path=require('path');['node_modules','.pnpm-store','pnpm-lock.yaml'].forEach(p=>{try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}})\""
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -218,24 +218,44 @@ export const VideoTile = memo(function VideoTile({
     // Always set srcObject to ensure it's attached
     video.srcObject = participant.stream;
 
-    // Ensure audio is not muted for remote participants
+    // CRITICAL FIX: For remote participants, ensure audio is NEVER muted
     if (!isLocal) {
       video.muted = false;
       video.volume = 1.0;
 
-      // Ensure audio tracks are enabled
+      // Force audio tracks to be enabled and unmuted
       participant.stream.getAudioTracks().forEach((track) => {
-        if (!track.enabled) {
+        track.enabled = true;
+
+        // Listen for mute events from the track itself
+        track.onmute = () => {
+          console.warn("[VideoTile] Audio track muted:", track.id);
+          // Try to re-enable
           track.enabled = true;
-        }
+        };
+
+        track.onunmute = () => {
+          console.log("[VideoTile] Audio track unmuted:", track.id);
+        };
       });
 
       // Also ensure video tracks are enabled
       participant.stream.getVideoTracks().forEach((track) => {
-        if (!track.enabled) {
-          track.enabled = true;
-        }
+        track.enabled = true;
       });
+
+      // Ensure video plays with audio
+      const playWithAudio = async () => {
+        try {
+          video.muted = false;
+          await video.play();
+          console.log("[VideoTile] Video playing with audio enabled");
+        } catch (err) {
+          console.error("[VideoTile] Failed to play video:", err);
+        }
+      };
+
+      playWithAudio();
     }
 
     // Handle track changes - when tracks are added/removed from stream
