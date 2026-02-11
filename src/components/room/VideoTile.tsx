@@ -384,7 +384,7 @@ export const VideoTile = memo(function VideoTile({
   const containerClasses = useMemo(
     () =>
       `
-        relative w-full h-full bg-neutral-800 rounded-2xl overflow-hidden
+        relative w-full h-full min-h-0 min-w-0 bg-neutral-800 rounded-2xl overflow-hidden
         ${isActive ? "ring-2 ring-primary-500" : ""}
         ${isSpeaking ? "ring-2 ring-[#757aed]" : ""}
       `,
@@ -425,7 +425,7 @@ export const VideoTile = memo(function VideoTile({
           onCanPlay={handleCanPlay}
         />
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center">
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-800">
           <Avatar
             name={participant.name}
             id={participant.id}

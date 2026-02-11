@@ -13,10 +13,10 @@ interface AvatarProps {
 
 export function Avatar({ name, id, size = "md", className = "" }: AvatarProps) {
   const sizeStyles = {
-    sm: "w-8 h-8 text-sm",
-    md: "w-10 h-10 text-base",
-    lg: "w-16 h-16 text-xl",
-    xl: "w-24 h-24 text-3xl",
+    sm: "w-10 h-10 text-sm",
+    md: "w-14 h-14 text-base",
+    lg: "w-20 h-20 text-xl",
+    xl: "w-28 h-28 text-3xl",
   };
 
   const backgroundColor = generateAvatarColor(id);
@@ -24,7 +24,7 @@ export function Avatar({ name, id, size = "md", className = "" }: AvatarProps) {
   return (
     <div
       className={`
-        rounded-full flex items-center justify-center font-medium text-white
+        rounded-full flex items-center justify-center font-medium text-white shadow-lg
         ${sizeStyles[size]} ${className}
       `}
       style={{ backgroundColor }}

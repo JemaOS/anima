@@ -229,6 +229,19 @@ export class P2PManager {
   }
 
   /**
+   * Get optimized RTC configuration for low latency audio
+   */
+  private getOptimizedRTCConfig(): RTCConfiguration {
+    return {
+      iceServers: this.getIceServers(),
+      iceTransportPolicy: "all",
+      iceCandidatePoolSize: 10,
+      bundlePolicy: "max-bundle",
+      rtcpMuxPolicy: "require",
+    };
+  }
+
+  /**
    * Get ICE configuration with optional relay-only mode
    */
   private getPeerConfig(relayOnly: boolean = false): RTCConfiguration {

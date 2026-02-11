@@ -179,10 +179,11 @@ export const ControlBar = memo(function ControlBar({
   const shouldShowCompact = maxButtonsOnOneLine < 10;
 
   // Determine which buttons to show based on screen size
-  const isUltraSmall = screenWidth < 320;   // Very small phones
-  const isSmall = screenWidth < 375;        // Small phones (iPhone SE, etc)
+  const isUltraSmall = screenWidth < 340;   // Very small phones (foldable closed)
+  const isSmall = screenWidth < 380;        // Small phones (iPhone SE, etc)
   const isMedium = screenWidth < 480;       // Medium phones
   const isMobileScreen = screenWidth < 640; // All mobile devices
+  const isFoldable = /Magic V|Fold|Flip/i.test(navigator.userAgent); // Foldable devices like Honor Magic V3
 
   // Callbacks mémoïsés
   const handleToggleScreenShare = useCallback(() => {
@@ -205,10 +206,11 @@ export const ControlBar = memo(function ControlBar({
     <div className="fixed bottom-0 left-0 right-0 z-50 pb-[env(safe-area-inset-bottom)] sm:pb-4 sm:left-1/2 sm:-translate-x-1/2 sm:right-auto sm:w-auto">
       <div className={`
         bg-neutral-800/95 backdrop-blur-md
-        px-2 sm:px-3 py-2 sm:py-2.5
-        shadow-lg flex items-center justify-center gap-1 sm:gap-2
+        px-1.5 sm:px-3 py-2 sm:py-2.5
+        shadow-lg flex items-center justify-center gap-0.5 sm:gap-2
         rounded-t-xl sm:rounded-full
         flex-nowrap overflow-x-auto
+        max-w-full
       `}>
         {/* Micro - toujours visible */}
         <ControlButton
@@ -228,8 +230,8 @@ export const ControlBar = memo(function ControlBar({
           isActive={!videoEnabled}
         />
 
-        {/* Changer de caméra - visible sur mobile quand vidéo active, hidden on very small screens */}
-        {onSwitchCamera && isMobile && videoEnabled && !isUltraSmall && (
+        {/* Changer de caméra - visible sur mobile quand vidéo active, hidden on very small screens and foldables */}
+        {onSwitchCamera && isMobile && videoEnabled && !isUltraSmall && !isFoldable && (
           <ControlButton
             onClick={onSwitchCamera}
             icon="flip-camera"
@@ -255,8 +257,8 @@ export const ControlBar = memo(function ControlBar({
           title="Participants"
         />
 
-        {/* Main levée - hidden on small screens */}
-        {!isSmall && (
+        {/* Main levée - hidden on small screens and foldables */}
+        {!isSmall && !isFoldable && (
           <ControlButton
             onClick={handleToggleHand}
             icon="pan-tool"
@@ -276,8 +278,8 @@ export const ControlBar = memo(function ControlBar({
           title="Discussion"
         />
 
-        {/* Paramètres - only on larger screens */}
-        {!isMedium && onOpenSettings && (
+        {/* Paramètres - only on larger screens, hidden on foldables */}
+        {!isMedium && !isFoldable && onOpenSettings && (
           <ControlButton
             onClick={onOpenSettings}
             icon="settings"

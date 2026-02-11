@@ -1917,7 +1917,7 @@ export function RoomPage() {
       </header>
 
       {/* Grille vidéo */}
-      <main className="flex-1 overflow-hidden pt-14 pb-16 sm:pt-16 sm:pb-20">
+      <main className="flex-1 overflow-hidden pt-14 pb-20 sm:pt-16 sm:pb-24">
         <VideoGrid
           participants={participants}
           localParticipant={localParticipant}
@@ -2037,7 +2037,7 @@ export function RoomPage() {
 
       {/* Room full error */}
       {roomFullError && (
-        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-danger-500/90 rounded-xl px-6 py-4 text-center max-w-md z-40">
+        <div className="absolute bottom-32 sm:bottom-28 left-1/2 -translate-x-1/2 bg-danger-500/90 rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-center max-w-[90vw] sm:max-w-md z-40 mx-4">
           <p className="text-white text-sm mb-2 font-medium">
             Réunion complète
           </p>
@@ -2058,11 +2058,11 @@ export function RoomPage() {
         participants.size === 0 &&
         state?.isHost &&
         !roomFullError && (
-          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-neutral-800 rounded-xl px-6 py-4 text-center max-w-lg z-40">
-            <p className="text-white text-sm mb-3 font-medium">
+          <div className="absolute bottom-32 sm:bottom-28 left-1/2 -translate-x-1/2 bg-neutral-800/95 backdrop-blur-sm rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-center max-w-[90vw] sm:max-w-lg z-40 mx-4">
+            <p className="text-white text-sm mb-2 sm:mb-3 font-medium">
               En attente des participants
             </p>
-            <p className="text-neutral-400 text-xs mb-4">
+            <p className="text-neutral-400 text-xs mb-3 sm:mb-4">
               Partagez ce lien pour inviter jusqu'à{" "}
               <span className="text-primary-400 font-semibold">
                 8 personnes
@@ -2070,14 +2070,14 @@ export function RoomPage() {
             </p>
             <button
               onClick={copyInviteLink}
-              className="w-full px-4 py-2 bg-primary-500 hover:bg-primary-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
+              className="w-full px-4 py-2.5 sm:py-2 bg-primary-500 hover:bg-primary-400 text-white rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2"
             >
               <Icon name={inviteLinkCopied ? "check" : "copy"} size={18} />
               {inviteLinkCopied
                 ? "Lien copié !"
                 : "Copier le lien d'invitation"}
             </button>
-            <p className="text-neutral-500 text-xs mt-3">
+            <p className="text-neutral-500 text-xs mt-2 sm:mt-3">
               ℹ️ Architecture P2P Mesh - Jusqu'à 8 participants
             </p>
           </div>
@@ -2088,7 +2088,7 @@ export function RoomPage() {
         participants.size === 0 &&
         !state?.isHost &&
         !roomFullError && (
-          <div className="absolute bottom-28 left-1/2 -translate-x-1/2 bg-neutral-800 rounded-xl px-6 py-4 text-center max-w-md z-40">
+          <div className="absolute bottom-32 sm:bottom-28 left-1/2 -translate-x-1/2 bg-neutral-800/95 backdrop-blur-sm rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-center max-w-[90vw] sm:max-w-md z-40 mx-4">
             <p className="text-white text-sm mb-2">Connexion à la réunion...</p>
             <p className="text-neutral-400 text-xs">
               Établissement des connexions P2P

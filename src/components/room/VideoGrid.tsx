@@ -285,7 +285,7 @@ export const VideoGrid = memo(function VideoGrid({
   }
 
   // For 2 participants on small screens, use a special layout
-  if (count === 2 && (screenSize === "xs" || screenSize === "sm")) {
+  if (count === 2 && (screenSize === "xs" || screenSize === "sm" || screenSize === "xxs")) {
     return (
       <div
         className="h-full w-full p-1 sm:p-2 overflow-hidden flex flex-col gap-1 sm:gap-2"
