@@ -87,7 +87,7 @@ const SpeakingIndicator = memo(function SpeakingIndicator({
 
   return (
     <div
-      className="absolute inset-0 border-4 border-green-500 rounded-2xl pointer-events-none z-10 transition-opacity duration-150"
+      className="absolute inset-0 border-4 border-[#757aed] rounded-2xl pointer-events-none z-10 transition-opacity duration-150"
       style={{ opacity: Math.min(audioLevel * 2, 0.8) }}
     />
   );
@@ -117,18 +117,18 @@ const AudioIndicator = memo(function AudioIndicator({
     <div className="relative flex items-center justify-center">
       <div
         className={`relative p-0.5 sm:p-1 rounded-full transition-all duration-150 ${
-          isSpeaking ? "bg-green-500/90" : "bg-neutral-600/80"
+          isSpeaking ? "bg-[#757aed]/90" : "bg-neutral-600/80"
         }`}
       >
         <Icon name="mic" size={size === "small" ? 10 : 14} className="text-white" />
         {isSpeaking && (
           <>
             <span
-              className="absolute inset-0 rounded-full border border-green-400 animate-ping"
+              className="absolute inset-0 rounded-full border border-[#757aed] animate-ping"
               style={{ animationDuration: "1s", opacity: Math.min(audioLevel * 2, 0.6) }}
             />
             <span
-              className="absolute -inset-0.5 rounded-full border border-green-300 animate-ping"
+              className="absolute -inset-0.5 rounded-full border border-[#9ba0f0] animate-ping"
               style={{
                 animationDuration: "1.2s",
                 animationDelay: "0.1s",
@@ -144,7 +144,7 @@ const AudioIndicator = memo(function AudioIndicator({
             <div
               key={i}
               className={`w-0.5 rounded-full transition-all duration-75 ${
-                audioLevel > threshold ? "bg-green-400" : "bg-gray-500"
+                audioLevel > threshold ? "bg-[#757aed]" : "bg-gray-500"
               }`}
               style={{
                 height: `${(i + 1) * 4}px`,
@@ -386,7 +386,7 @@ export const VideoTile = memo(function VideoTile({
       `
         relative w-full h-full bg-neutral-800 rounded-2xl overflow-hidden
         ${isActive ? "ring-2 ring-primary-500" : ""}
-        ${isSpeaking ? "ring-2 ring-green-500" : ""}
+        ${isSpeaking ? "ring-2 ring-[#757aed]" : ""}
       `,
     [isActive, isSpeaking]
   );
@@ -404,7 +404,7 @@ export const VideoTile = memo(function VideoTile({
       
       {/* Subtle speaking glow effect */}
       {isSpeaking && (
-        <div className="absolute inset-0 rounded-2xl shadow-[inset_0_0_20px_rgba(34,197,94,0.3)] pointer-events-none z-10" />
+        <div className="absolute inset-0 rounded-2xl shadow-[inset_0_0_20px_rgba(117,122,237,0.3)] pointer-events-none z-10" />
       )}
 
       {/* Connection quality indicator */}
