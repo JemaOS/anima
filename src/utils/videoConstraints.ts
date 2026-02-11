@@ -180,8 +180,8 @@ export const getOptimalAudioConstraints = (): MediaTrackConstraints => {
     echoCancellation: true,
     noiseSuppression: true,
     autoGainControl: true,
-    channelCount: 1,
-    sampleRate: 48000,
+    channelCount: 2,           // Stereo for better audio quality
+    sampleRate: 48000,         // Standard 48kHz sample rate
     sampleSize: 16,
   };
 

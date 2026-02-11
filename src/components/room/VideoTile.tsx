@@ -87,8 +87,8 @@ const SpeakingIndicator = memo(function SpeakingIndicator({
 
   return (
     <div
-      className="absolute inset-0 border-2 border-green-500 rounded-lg pointer-events-none z-10 transition-opacity duration-150"
-      style={{ opacity: Math.min(audioLevel * 3, 1) }}
+      className="absolute inset-0 border-4 border-green-500 rounded-2xl pointer-events-none z-10 transition-opacity duration-150"
+      style={{ opacity: Math.min(audioLevel * 2, 0.8) }}
     />
   );
 });
@@ -384,10 +384,11 @@ export const VideoTile = memo(function VideoTile({
   const containerClasses = useMemo(
     () =>
       `
-        relative w-full h-full bg-neutral-800 rounded-lg overflow-hidden
+        relative w-full h-full bg-neutral-800 rounded-2xl overflow-hidden
         ${isActive ? "ring-2 ring-primary-500" : ""}
+        ${isSpeaking ? "ring-2 ring-green-500" : ""}
       `,
-    [isActive]
+    [isActive, isSpeaking]
   );
 
   const videoClasses = useMemo(
@@ -398,8 +399,13 @@ export const VideoTile = memo(function VideoTile({
 
   return (
     <div className={containerClasses}>
-      {/* Active speaker indicator - green border when speaking */}
+      {/* Active speaker indicator - green border when speaking (Meet-style) */}
       <SpeakingIndicator audioLevel={participant.audioLevel || 0} size={size} />
+      
+      {/* Subtle speaking glow effect */}
+      {isSpeaking && (
+        <div className="absolute inset-0 rounded-2xl shadow-[inset_0_0_20px_rgba(34,197,94,0.3)] pointer-events-none z-10" />
+      )}
 
       {/* Connection quality indicator */}
       {!isLocal && participant.connectionQuality && (

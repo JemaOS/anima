@@ -356,6 +356,9 @@ export function RoomPage() {
         // Use optimal audio constraints from utility
         const audioConstraints: MediaTrackConstraints = {
           ...getOptimalAudioConstraints(),
+          // Ensure consistent sample rate to prevent audio distortion
+          sampleRate: 48000,
+          channelCount: 2,
         };
 
         if (audioDeviceId) {
@@ -449,12 +452,14 @@ export function RoomPage() {
           );
           setTimeout(() => setMediaError(null), 2000);
           try {
-            const fallbackAudioConstraints: MediaTrackConstraints = {
-              ...getOptimalAudioConstraints(),
-            };
-            if (audioDeviceId) {
-              fallbackAudioConstraints.deviceId = { exact: audioDeviceId };
-            }
+          const fallbackAudioConstraints: MediaTrackConstraints = {
+            ...getOptimalAudioConstraints(),
+            sampleRate: 48000,
+            channelCount: 2,
+          };
+          if (audioDeviceId) {
+            fallbackAudioConstraints.deviceId = { exact: audioDeviceId };
+          }
             const fallbackStream = await navigator.mediaDevices.getUserMedia({
               video: true,
               audio: fallbackAudioConstraints,
@@ -535,6 +540,8 @@ export function RoomPage() {
               echoCancellation: true,
               noiseSuppression: true,
               autoGainControl: true,
+              sampleRate: 48000,
+              channelCount: 2,
             },
           });
 
@@ -1432,6 +1439,8 @@ export function RoomPage() {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
+        sampleRate: 48000,
+        channelCount: 2,
       };
 
       // Try with exact facingMode first, then fallback

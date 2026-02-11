@@ -306,13 +306,35 @@ export const VideoGrid = memo(function VideoGrid({
   }
 
   // For 3-4 participants on very small screens, use optimized 2x2 grid
-  if (count >= 3 && count <= 4 && screenSize === "xs") {
+  if (count >= 3 && count <= 4 && (screenSize === "xs" || screenSize === "xxs")) {
     return (
       <div
         className="h-full w-full p-1 overflow-hidden"
         style={{ filter: videoFilter }}
       >
         <div className="grid grid-cols-2 grid-rows-2 gap-1 h-full w-full">
+          {allParticipants.map((participant, index) => (
+            <GridVideoTile
+              key={participant.id}
+              participant={participant}
+              isLocal={index === 0 && !!localParticipant}
+              size="small"
+              onPin={handlePinParticipant(participant.id)}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  // For 3 participants on small screens (sm), use 2x2 grid with one empty slot
+  if (count === 3 && screenSize === "sm") {
+    return (
+      <div
+        className="h-full w-full p-1 sm:p-2 overflow-hidden"
+        style={{ filter: videoFilter }}
+      >
+        <div className="grid grid-cols-2 grid-rows-2 gap-1 sm:gap-2 h-full w-full">
           {allParticipants.map((participant, index) => (
             <GridVideoTile
               key={participant.id}
