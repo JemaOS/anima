@@ -11,6 +11,7 @@ interface VideoGridProps {
   pinnedId?: string | null;
   onPinParticipant?: (id: string | null) => void;
   videoFilter?: string;
+  facingMode?: "user" | "environment";
 }
 
 // Hook personnalisé pour détecter la taille de l'écran - optimisé
@@ -78,10 +79,12 @@ const ThumbnailStrip = memo(function ThumbnailStrip({
   others,
   localParticipant,
   onPinParticipant,
+  facingMode,
 }: {
   others: Participant[];
   localParticipant?: Participant;
   onPinParticipant?: (id: string | null) => void;
+  facingMode?: "user" | "environment";
 }) {
   const handlePin = useCallback(
     (id: string) => () => {
@@ -99,6 +102,7 @@ const ThumbnailStrip = memo(function ThumbnailStrip({
             isLocal={localParticipant?.id === p.id}
             size="small"
             onPin={handlePin(p.id)}
+            facingMode={facingMode}
           />
         </div>
       ))}
@@ -106,21 +110,23 @@ const ThumbnailStrip = memo(function ThumbnailStrip({
   );
 });
 
-// Composant pour une tuile de vidéo individuelle dans la grille - mémoïsé
+  // Composant pour une tuile de vidéo individuelle dans la grille - mémoïsé
 const GridVideoTile = memo(function GridVideoTile({
   participant,
   isLocal,
   size,
   onPin,
+  facingMode,
 }: {
   participant: Participant;
   isLocal: boolean;
   size: "small" | "medium" | "large";
   onPin?: () => void;
+  facingMode?: "user" | "environment";
 }) {
   return (
-    <div className="w-full h-full min-h-0 min-w-0 overflow-hidden">
-      <VideoTile participant={participant} isLocal={isLocal} size={size} onPin={onPin} />
+    <div className="w-full h-full min-h-0 min-w-0">
+      <VideoTile participant={participant} isLocal={isLocal} size={size} onPin={onPin} facingMode={facingMode} />
     </div>
   );
 });
@@ -132,6 +138,7 @@ export const VideoGrid = memo(function VideoGrid({
   pinnedId,
   onPinParticipant,
   videoFilter = "none",
+  facingMode,
 }: VideoGridProps) {
   const screenSize = useScreenSize();
 
@@ -269,6 +276,7 @@ export const VideoGrid = memo(function VideoGrid({
             isPinned
             size="large"
             onPin={handleUnpin}
+            facingMode={facingMode}
           />
         </div>
 
@@ -278,6 +286,7 @@ export const VideoGrid = memo(function VideoGrid({
             others={others}
             localParticipant={localParticipant}
             onPinParticipant={onPinParticipant}
+            facingMode={facingMode}
           />
         )}
       </div>
@@ -298,6 +307,7 @@ export const VideoGrid = memo(function VideoGrid({
               isLocal={index === 0 && !!localParticipant}
               size={tileSize}
               onPin={handlePinParticipant(participant.id)}
+              facingMode={facingMode}
             />
           </div>
         ))}
@@ -320,6 +330,7 @@ export const VideoGrid = memo(function VideoGrid({
               isLocal={index === 0 && !!localParticipant}
               size="small"
               onPin={handlePinParticipant(participant.id)}
+              facingMode={facingMode}
             />
           ))}
         </div>
@@ -342,6 +353,7 @@ export const VideoGrid = memo(function VideoGrid({
               isLocal={index === 0 && !!localParticipant}
               size="small"
               onPin={handlePinParticipant(participant.id)}
+              facingMode={facingMode}
             />
           ))}
         </div>
@@ -363,6 +375,7 @@ export const VideoGrid = memo(function VideoGrid({
             isLocal={index === 0 && !!localParticipant}
             size={tileSize}
             onPin={handlePinParticipant(participant.id)}
+            facingMode={facingMode}
           />
         ))}
       </div>

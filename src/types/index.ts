@@ -14,6 +14,7 @@ export interface Participant {
   handRaised: boolean;
   audioLevel?: number; // 0-1 for active speaker detection
   connectionQuality?: ConnectionQuality; // Network quality indicator
+  facingMode?: "user" | "environment"; // Camera facing mode for mirroring
 }
 
 export interface ChatMessage {

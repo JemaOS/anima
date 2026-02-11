@@ -1802,6 +1802,7 @@ export function RoomPage() {
       videoEnabled,
       screenSharing: !!screenStream,
       handRaised,
+      facingMode,
     }),
     [
       myId,
@@ -1811,6 +1812,7 @@ export function RoomPage() {
       audioEnabled,
       videoEnabled,
       handRaised,
+      facingMode,
     ],
   );
 
@@ -1924,6 +1926,7 @@ export function RoomPage() {
           pinnedId={pinnedId}
           onPinParticipant={setPinnedId}
           videoFilter={VIDEO_STYLES[videoStyle].filter}
+          facingMode={facingMode}
         />
       </main>
 

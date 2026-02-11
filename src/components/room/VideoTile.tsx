@@ -19,6 +19,7 @@ interface VideoTileProps {
   isPinned?: boolean;
   onPin?: () => void;
   size?: "small" | "medium" | "large";
+  facingMode?: "user" | "environment";
 }
 
 // Helper to get connection quality color - memoized outside component
@@ -169,6 +170,7 @@ export const VideoTile = memo(function VideoTile({
   isPinned = false,
   onPin,
   size = "medium",
+  facingMode,
 }: VideoTileProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -387,35 +389,33 @@ export const VideoTile = memo(function VideoTile({
   const containerClasses = useMemo(
     () =>
       `
-        relative w-full h-full min-h-0 min-w-0 bg-neutral-800 rounded-2xl overflow-hidden
+        relative w-full h-full min-h-0 min-w-0 bg-neutral-800 rounded-2xl
         ${isActive ? "ring-2 ring-primary-500" : ""}
         ${isSpeaking ? "ring-2 ring-[#757aed]" : ""}
       `,
     [isActive, isSpeaking]
   );
 
+  // Determine if video should be mirrored:
+  // - Local video: mirror only if using front camera (user facing) for selfie effect
+  // - Rear camera (environment): don't mirror to show real world correctly
+  const shouldMirror = useMemo(() => {
+    if (!isLocal) return false;
+    // Default to mirroring for front camera (user facing mode)
+    // Don't mirror for rear camera (environment facing mode)
+    const effectiveFacingMode = facingMode || participant.facingMode || "user";
+    return effectiveFacingMode === "user";
+  }, [isLocal, facingMode, participant.facingMode]);
+
   const videoClasses = useMemo(
     () =>
-      `w-full h-full object-contain bg-neutral-900 ${isLocal ? "transform -scale-x-100" : ""}`,
-    [isLocal]
+      `w-full h-full object-cover bg-neutral-900 ${shouldMirror ? "transform -scale-x-100" : ""}`,
+    [shouldMirror]
   );
 
   return (
     <div className={containerClasses}>
-      {/* Active speaker indicator - green border when speaking (Meet-style) */}
-      <SpeakingIndicator audioLevel={participant.audioLevel || 0} size={size} />
-      
-      {/* Subtle speaking glow effect */}
-      {isSpeaking && (
-        <div className="absolute inset-0 rounded-2xl shadow-[inset_0_0_20px_rgba(117,122,237,0.3)] pointer-events-none z-10" />
-      )}
-
-      {/* Connection quality indicator */}
-      {!isLocal && participant.connectionQuality && (
-        <ConnectionQualityIndicator quality={participant.connectionQuality} />
-      )}
-
-      {/* Video stream or avatar */}
+      {/* Video stream or avatar - fills the entire container */}
       {hasVideo ? (
         <video
           ref={videoRef}
@@ -428,13 +428,26 @@ export const VideoTile = memo(function VideoTile({
           onCanPlay={handleCanPlay}
         />
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-neutral-800">
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-800 rounded-2xl">
           <Avatar
             name={participant.name}
             id={participant.id}
             size={size === "small" ? "sm" : size === "medium" ? "md" : "xl"}
           />
         </div>
+      )}
+
+      {/* Active speaker indicator - border overlay */}
+      <SpeakingIndicator audioLevel={participant.audioLevel || 0} size={size} />
+      
+      {/* Subtle speaking glow effect */}
+      {isSpeaking && (
+        <div className="absolute inset-0 rounded-2xl shadow-[inset_0_0_20px_rgba(117,122,237,0.3)] pointer-events-none z-10" />
+      )}
+
+      {/* Connection quality indicator */}
+      {!isLocal && participant.connectionQuality && (
+        <ConnectionQualityIndicator quality={participant.connectionQuality} />
       )}
 
       {/* Hand raised indicator */}
@@ -462,7 +475,7 @@ export const VideoTile = memo(function VideoTile({
       )}
 
       {/* Bottom overlay with name and mic status */}
-      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 sm:p-2 md:p-3 z-10">
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 sm:p-2 md:p-3 z-10 rounded-b-2xl">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1 sm:gap-2 min-w-0">
             <AudioIndicator
