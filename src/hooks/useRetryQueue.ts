@@ -99,7 +99,7 @@ export function useRetryQueue<T>(
   }, [retryOptions, updateQueueItem]);
 
   const processBatch = useCallback(async (batch: RetryQueueItem<T>[]) => {
-    return Promise.allSettled(batch.map(processItem));
+    return Promise.allSettled(batch.map(item => processItem(item)));
   }, [processItem]);
 
   const process = useCallback(async (): Promise<void> => {

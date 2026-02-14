@@ -647,6 +647,43 @@ export function RoomPage() {
     }
   }, []);
 
+  const handleConnectionStateChange = useCallback((peerId: string, connectionState: ConnectionState) => {
+    if (connectionState === ConnectionState.CONNECTED) {
+      setConnectionStatus("connected");
+    } else if (connectionState === ConnectionState.RECONNECTING) {
+      setConnectionStatus("reconnecting");
+    } else if (connectionState === ConnectionState.FAILED) {
+      const manager = p2pManager.current;
+      if (manager) {
+        const allFailed = Array.from(manager.getPeers()).every(
+          (p) => manager.getConnectionState(p.id) === ConnectionState.FAILED,
+        );
+        if (allFailed && manager.getPeers().length > 0) {
+          setConnectionStatus("failed");
+        }
+      }
+    }
+  }, []);
+
+  const handleRoomFull = useCallback(() => {
+    setRoomFullError(true);
+    setMediaError("Réunion complète. Maximum 8 participants autorisés.");
+  }, []);
+
+  const handleAudioLevel = useCallback((peerId: string, level: number) => {
+    dispatchParticipants({
+      type: "SET_AUDIO_LEVEL",
+      payload: { id: peerId, audioLevel: level },
+    });
+  }, []);
+
+  const handleConnectionQuality = useCallback((peerId: string, quality: ConnectionQuality) => {
+    dispatchParticipants({
+      type: "SET_CONNECTION_QUALITY",
+      payload: { id: peerId, connectionQuality: quality },
+    });
+  }, []);
+
   // Initialization - proper sequence to avoid race conditions
   // With improved Android support
   useEffect(() => {
@@ -656,6 +693,65 @@ export function RoomPage() {
     let isMounted = true;
     let currentManager: P2PManager | null = null;
     let currentStream: MediaStream | null = null;
+
+    const initializePeerSession = async (manager: P2PManager, capturedStream: MediaStream | null) => {
+      // 4. Initialize peer AFTER media capture
+      let peerId: string;
+      if (state.isHost) {
+        peerId = `host-${code}`;
+        console.log("[RoomPage] 🔌 HOST: Using deterministic peer ID", { peerId, code });
+      } else {
+        peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`;
+        console.log("[RoomPage] 🔌 PARTICIPANT: Using random peer ID", { peerId });
+      }
+
+      console.log("[RoomPage] 🔌 Initializing peer...", { peerId, isHost: state.isHost });
+      const id = await manager.initialize(peerId, state.isHost);
+      console.log("[RoomPage] ✅ Peer initialized", { requestedId: peerId, actualId: id });
+
+      if (!isMounted) {
+        manager.destroy();
+        return;
+      }
+
+      setMyId(id);
+      setConnected(true);
+
+      // 5. Update local stream in manager immediately after initialization
+      if (capturedStream) {
+        console.log("[RoomPage] 📹 Updating local stream in manager", {
+          audioTracks: capturedStream.getAudioTracks().length,
+          videoTracks: capturedStream.getVideoTracks().length,
+          isHost: state.isHost,
+        });
+        manager.updateLocalStream(capturedStream);
+      } else {
+        console.log("[RoomPage] ⚠️ No captured stream to update in manager!");
+      }
+
+      setConnectionStatus("connected");
+
+      // 6. Create or join room with proper delay
+      if (state.isHost) {
+        manager.createRoom(state.userName);
+        const newUrl = `${window.location.pathname}${window.location.search}#peer_id=${id}`;
+        window.history.replaceState(null, "", newUrl);
+        console.log("[RoomPage] 🔗 Host URL updated with peer ID", { url: newUrl, peerId: id });
+      } else {
+        const hostPeerIdToUse = state.hostPeerId || `host-${code}`;
+        console.log("[RoomPage] 🤝 Using host peer ID", { using: hostPeerIdToUse });
+
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        console.log("[RoomPage] 🤝 Joining room as participant", { hostPeerId: hostPeerIdToUse });
+        
+        const joined = await manager.joinRoom(hostPeerIdToUse, state.userName, capturedStream);
+        console.log("[RoomPage] 🤝 Join room result", { joined });
+      }
+
+      manager.startQualityMonitoring();
+      manager.startAudioLevelMonitoring();
+      initializationComplete.current = true;
+    };
 
     const init = async () => {
       // Skip if already initialized AND we have a valid manager
@@ -681,36 +777,10 @@ export function RoomPage() {
       manager.onStream(handleStreamReceived);
       manager.onTrackUnmuted(handleTrackUnmuted);
       manager.onICEStateChange(handleICEStateChange);
-
-      manager.onConnectionStateChange((peerId, connectionState) => {
-        // Update overall connection status based on peer states
-        if (connectionState === ConnectionState.CONNECTED) {
-          setConnectionStatus("connected");
-        } else if (connectionState === ConnectionState.RECONNECTING) {
-          setConnectionStatus("reconnecting");
-        } else if (connectionState === ConnectionState.FAILED) {
-          // Only set failed if all connections failed
-          const allFailed = Array.from(manager.getPeers()).every(
-            (p) => manager.getConnectionState(p.id) === ConnectionState.FAILED,
-          );
-          if (allFailed && manager.getPeers().length > 0) {
-            setConnectionStatus("failed");
-          }
-        }
-      });
-
-      manager.onRoomFull(() => {
-        setRoomFullError(true);
-        setMediaError("Réunion complète. Maximum 8 participants autorisés.");
-      });
-
-      // Audio level callback for active speaker detection
-      manager.onAudioLevel((peerId, level) => {
-        dispatchParticipants({
-          type: "SET_AUDIO_LEVEL",
-          payload: { id: peerId, audioLevel: level },
-        });
-      });
+      manager.onConnectionStateChange(handleConnectionStateChange);
+      manager.onRoomFull(handleRoomFull);
+      manager.onAudioLevel(handleAudioLevel);
+      manager.onConnectionQuality(handleConnectionQuality);
 
       // CRITICAL FIX: Resume audio context on user interaction
       const resumeAudioContext = () => {
@@ -721,14 +791,6 @@ export function RoomPage() {
       document.addEventListener('click', resumeAudioContext, { once: true });
       document.addEventListener('touchstart', resumeAudioContext, { once: true });
 
-      // Connection quality callback for network indicators
-      manager.onConnectionQuality((peerId, quality) => {
-        dispatchParticipants({
-          type: "SET_CONNECTION_QUALITY",
-          payload: { id: peerId, connectionQuality: quality },
-        });
-      });
-
       // 3. Capture media BEFORE peer initialization
       const capturedStream = await captureLocalMedia(
         state.audioEnabled,
@@ -736,7 +798,6 @@ export function RoomPage() {
       );
 
       if (!isMounted) {
-        // Component unmounted during async operation
         capturedStream?.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -752,106 +813,8 @@ export function RoomPage() {
         setAudioEnabled(false);
       }
 
-      // 4. Initialize peer AFTER media capture
-      // CRITICAL FIX: Use deterministic peer ID for HOST so participants can find them
-      // without needing the full URL with hash. Participants use random IDs.
-      let peerId: string;
-      if (state.isHost) {
-        // Host uses deterministic ID based on room code
-        // This allows participants to connect using just the room code
-        peerId = `host-${code}`;
-        console.log("[RoomPage] 🔌 HOST: Using deterministic peer ID", {
-          peerId,
-          code,
-        });
-      } else {
-        // Participants use random IDs to avoid conflicts
-        peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`;
-        console.log("[RoomPage] 🔌 PARTICIPANT: Using random peer ID", {
-          peerId,
-        });
-      }
-
       try {
-        console.log("[RoomPage] 🔌 Initializing peer...", {
-          peerId,
-          isHost: state.isHost,
-        });
-        const id = await manager.initialize(peerId, state.isHost);
-        console.log("[RoomPage] ✅ Peer initialized", {
-          requestedId: peerId,
-          actualId: id,
-        });
-
-        if (!isMounted) {
-          // Component unmounted during async operation
-          manager.destroy();
-          return;
-        }
-
-        setMyId(id);
-        setConnected(true);
-
-        // 5. Update local stream in manager immediately after initialization
-        // This is CRITICAL - the manager needs the stream to answer incoming calls
-        if (capturedStream) {
-          console.log("[RoomPage] 📹 Updating local stream in manager", {
-            audioTracks: capturedStream.getAudioTracks().length,
-            videoTracks: capturedStream.getVideoTracks().length,
-            isHost: state.isHost,
-          });
-          manager.updateLocalStream(capturedStream);
-        } else {
-          console.log("[RoomPage] ⚠️ No captured stream to update in manager!");
-        }
-
-        setConnectionStatus("connected");
-
-        // 6. Create or join room with proper delay
-        if (state.isHost) {
-          manager.createRoom(state.userName);
-          // Add hash for sharing - use the actual peer ID returned by initialize
-          // This is important because if the original ID was taken, a modified ID is used
-          const newUrl = `${window.location.pathname}${window.location.search}#peer_id=${id}`;
-          window.history.replaceState(null, "", newUrl);
-          console.log("[RoomPage] 🔗 Host URL updated with peer ID", {
-            url: newUrl,
-            peerId: id,
-          });
-        } else {
-          // CRITICAL FIX: If no hostPeerId provided, use deterministic host ID
-          const hostPeerIdToUse = state.hostPeerId || `host-${code}`;
-          console.log("[RoomPage] 🤝 Using host peer ID", {
-            provided: state.hostPeerId,
-            calculated: `host-${code}`,
-            using: hostPeerIdToUse,
-          });
-
-          // Small delay to ensure everything is ready
-          await new Promise((resolve) => setTimeout(resolve, 100));
-          console.log("[RoomPage] 🤝 Joining room as participant", {
-            hostPeerId: hostPeerIdToUse,
-            hasStream: !!capturedStream,
-            streamTracks: capturedStream?.getTracks().length || 0,
-          });
-          const joined = await manager.joinRoom(
-            hostPeerIdToUse,
-            state.userName,
-            capturedStream,
-          );
-          console.log("[RoomPage] 🤝 Join room result", {
-            joined,
-            hostPeerId: hostPeerIdToUse,
-            streamWasProvided: !!capturedStream,
-          });
-        }
-
-        // Start quality and audio level monitoring after connection
-        manager.startQualityMonitoring();
-        manager.startAudioLevelMonitoring();
-
-        // Mark initialization as complete ONLY after everything succeeds
-        initializationComplete.current = true;
+        await initializePeerSession(manager, capturedStream);
       } catch (error) {
         console.error("[RoomPage] Initialization error:", error);
         const err = error instanceof Error ? error : new Error(String(error));
@@ -910,6 +873,10 @@ export function RoomPage() {
     handleStreamReceived,
     handleTrackUnmuted,
     handleICEStateChange,
+    handleConnectionStateChange,
+    handleRoomFull,
+    handleAudioLevel,
+    handleConnectionQuality,
   ]);
 
   // Broadcast to all peers - memoized
