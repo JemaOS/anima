@@ -7,16 +7,16 @@ export function useScreenSize() {
   useEffect(() => {
     // Utiliser requestAnimationFrame pour éviter les recalculs excessifs
     let rafId: number | null = null;
-    let lastWidth = window.innerWidth;
-    let lastHeight = window.innerHeight;
+    let lastWidth = globalThis.innerWidth;
+    let lastHeight = globalThis.innerHeight;
 
     const updateSize = () => {
       if (rafId) return;
 
       rafId = requestAnimationFrame(() => {
         rafId = null;
-        const width = window.innerWidth;
-        const height = window.innerHeight;
+        const width = globalThis.innerWidth;
+        const height = globalThis.innerHeight;
         const aspectRatio = width / height;
 
         // Ne mettre à jour que si la taille a significativement changé
@@ -50,9 +50,9 @@ export function useScreenSize() {
     };
 
     updateSize();
-    window.addEventListener("resize", updateSize, { passive: true });
+    globalThis.addEventListener("resize", updateSize, { passive: true });
     return () => {
-      window.removeEventListener("resize", updateSize);
+      globalThis.removeEventListener("resize", updateSize);
       if (rafId) cancelAnimationFrame(rafId);
     };
   }, []);

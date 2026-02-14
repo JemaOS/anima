@@ -5,10 +5,10 @@ import React from "react";
 import { getInitials, generateAvatarColor } from "@/utils/helpers";
 
 interface AvatarProps {
-  name: string;
-  id: string;
-  size?: "sm" | "md" | "lg" | "xl";
-  className?: string;
+  readonly name: string;
+  readonly id: string;
+  readonly size?: "sm" | "md" | "lg" | "xl";
+  readonly className?: string;
 }
 
 export function Avatar({ name, id, size = "md", className = "" }: AvatarProps) {

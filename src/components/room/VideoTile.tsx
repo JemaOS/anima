@@ -13,13 +13,13 @@ import { Avatar, Icon } from "@/components/ui";
 import { Participant, ConnectionQuality } from "@/types";
 
 interface VideoTileProps {
-  participant: Participant;
-  isLocal?: boolean;
-  isActive?: boolean;
-  isPinned?: boolean;
-  onPin?: () => void;
-  size?: "small" | "medium" | "large";
-  facingMode?: "user" | "environment";
+  readonly participant: Participant;
+  readonly isLocal?: boolean;
+  readonly isActive?: boolean;
+  readonly isPinned?: boolean;
+  readonly onPin?: () => void;
+  readonly size?: "small" | "medium" | "large";
+  readonly facingMode?: "user" | "environment";
 }
 
 // Helper to get connection quality color - memoized outside component
@@ -549,6 +549,3 @@ export const VideoTile = memo(function VideoTile({
     </div>
   );
 });
-
-// Export nommé pour la rétrocompatibilité
-export default VideoTile;

@@ -375,7 +375,7 @@
           // Afficher le toast et rediriger
           showToast();
           setTimeout(() => {
-            window.location.href = '/';
+            globalThis.location.href = '/';
           }, 2000);
         } else {
           statusEl.textContent = 'Déconnecté';
@@ -431,16 +431,16 @@
 
       // Retour à l'accueil
       function goHome() {
-        window.location.href = '/';
+        globalThis.location.href = '/';
       }
 
       // Écouter les événements de connexion
-      window.addEventListener('online', () => {
+      globalThis.addEventListener('online', () => {
         console.log('[Offline Page] Connexion rétablie');
         updateConnectionStatus();
       });
 
-      window.addEventListener('offline', () => {
+      globalThis.addEventListener('offline', () => {
         console.log('[Offline Page] Connexion perdue');
         updateConnectionStatus();
       });
@@ -464,7 +464,7 @@
 
       // Vérifier périodiquement la connexion (toutes les 5 secondes)
       setInterval(() => {
-        if (navigator.onLine && window.location.pathname !== '/offline.html') {
+        if (navigator.onLine && globalThis.location.pathname !== '/offline.html') {
           updateConnectionStatus();
         }
       }, 5000);

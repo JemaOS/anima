@@ -4,9 +4,9 @@
 import React from "react";
 
 interface IconProps {
-  name: string;
-  size?: number;
-  className?: string;
+  readonly name: string;
+  readonly size?: number;
+  readonly className?: string;
 }
 
 // Icônes SVG inline pour éviter les dépendances externes

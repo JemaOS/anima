@@ -73,7 +73,7 @@ let cachedUserAgent = "";
 
 // Get saved video quality from localStorage
 export const getSavedVideoQuality = (): VideoQualityLevel => {
-  if (typeof window === "undefined") return "auto";
+  if (typeof globalThis === "undefined") return "auto";
   const saved = localStorage.getItem(VIDEO_QUALITY_STORAGE_KEY);
   if (saved && ["auto", "low", "medium", "high", "ultra"].includes(saved)) {
     return saved as VideoQualityLevel;
@@ -83,7 +83,7 @@ export const getSavedVideoQuality = (): VideoQualityLevel => {
 
 // Save video quality to localStorage
 export const saveVideoQuality = (quality: VideoQualityLevel): void => {
-  if (typeof window === "undefined") return;
+  if (typeof globalThis === "undefined") return;
   localStorage.setItem(VIDEO_QUALITY_STORAGE_KEY, quality);
 };
 
@@ -99,9 +99,9 @@ export const getDeviceType = (): "mobile" | "tablet" | "desktop" => {
     /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
   const isTablet =
     /iPad|Android(?!.*Mobile)/i.test(ua) ||
-    (window.innerWidth >= 768 &&
-      window.innerWidth < 1024 &&
-      "ontouchstart" in window);
+    (globalThis.innerWidth >= 768 &&
+      globalThis.innerWidth < 1024 &&
+      "ontouchstart" in globalThis);
 
   let result: "mobile" | "tablet" | "desktop";
   if (isTablet) {

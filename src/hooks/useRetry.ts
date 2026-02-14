@@ -195,5 +195,3 @@ export { RetryPresets, RetryError };
 // Re-export other hooks
 export * from './usePolling';
 export * from './useRetryQueue';
-
-export default useRetry;

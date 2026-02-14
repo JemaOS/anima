@@ -29,16 +29,12 @@ import {
 import {
   getOptimalVideoConstraints,
   getOptimalAudioConstraints,
-  VIDEO_PRESETS,
-  getDeviceType,
   VideoQualityLevel,
   getSavedVideoQuality,
   saveVideoQuality,
 } from "@/utils/videoConstraints";
 import { captureMediaStream, isAndroid, isMobileDevice, restartVideoTrack } from "@/utils/mediaHelpers";
 import { useNetworkStatus, useReconnection } from "@/hooks/useNetworkStatus";
-import { useRetry } from "@/hooks/useRetry";
-import { withTimeoutRace } from "@/utils/retry";
 
 interface LocationState {
   userName: string;
@@ -212,7 +208,7 @@ export function RoomPage() {
   // Redirect if no state
   useEffect(() => {
     if (!state?.userName) {
-      const hash = window.location.hash;
+      const hash = globalThis.location.hash;
       navigate(`/prejoin/${code}${hash}`);
     }
   }, [state, code, navigate]);
@@ -701,7 +697,7 @@ export function RoomPage() {
         peerId = `host-${code}`;
         console.log("[RoomPage] 🔌 HOST: Using deterministic peer ID", { peerId, code });
       } else {
-        peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substr(2, 5)}`;
+        peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
         console.log("[RoomPage] 🔌 PARTICIPANT: Using random peer ID", { peerId });
       }
 
@@ -734,8 +730,8 @@ export function RoomPage() {
       // 6. Create or join room with proper delay
       if (state.isHost) {
         manager.createRoom(state.userName);
-        const newUrl = `${window.location.pathname}${window.location.search}#peer_id=${id}`;
-        window.history.replaceState(null, "", newUrl);
+        const newUrl = `${globalThis.location.pathname}${globalThis.location.search}#peer_id=${id}`;
+        globalThis.history.replaceState(null, "", newUrl);
         console.log("[RoomPage] 🔗 Host URL updated with peer ID", { url: newUrl, peerId: id });
       } else {
         const hostPeerIdToUse = state.hostPeerId || `host-${code}`;
@@ -1316,7 +1312,7 @@ export function RoomPage() {
 
   // Copy meeting link - memoized with feedback
   const copyMeetingLink = useCallback(async () => {
-    const url = `${window.location.origin}${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const url = `${globalThis.location.origin}${globalThis.location.pathname}${globalThis.location.search}${globalThis.location.hash}`;
     try {
       await navigator.clipboard.writeText(url);
       setMeetingLinkCopied(true);
@@ -1343,7 +1339,7 @@ export function RoomPage() {
   }, []);
 
   const copyInviteLink = useCallback(() => {
-    const fullUrl = `${window.location.href}`;
+    const fullUrl = `${globalThis.location.href}`;
     navigator.clipboard.writeText(fullUrl);
     setInviteLinkCopied(true);
     setTimeout(() => setInviteLinkCopied(false), 2000);
@@ -1399,7 +1395,7 @@ export function RoomPage() {
                 setInitError(null);
                 setConnectionStatus("connecting");
                 initializationComplete.current = false;
-                window.location.reload();
+                globalThis.location.reload();
               }}
               className="px-6 py-3 bg-primary-500 hover:bg-primary-400 text-white rounded-full font-medium transition-colors"
             >
@@ -1579,7 +1575,7 @@ export function RoomPage() {
             <Icon name="warning" size={18} className="inline mr-2" />
             Impossible de se connecter. Vérifiez votre connexion internet.
             <button
-              onClick={() => window.location.reload()}
+              onClick={() => globalThis.location.reload()}
               className="block w-full mt-2 px-3 py-1 bg-white/20 rounded hover:bg-white/30 transition-colors"
             >
               Rafraîchir la page

@@ -12,12 +12,12 @@ import {
 } from "@/utils/layoutHelpers";
 
 interface VideoGridProps {
-  participants: Map<string, Participant>;
-  localParticipant?: Participant;
-  pinnedId?: string | null;
-  onPinParticipant?: (id: string | null) => void;
-  videoFilter?: string;
-  facingMode?: "user" | "environment";
+  readonly participants: Map<string, Participant>;
+  readonly localParticipant?: Participant;
+  readonly pinnedId?: string | null;
+  readonly onPinParticipant?: (id: string | null) => void;
+  readonly videoFilter?: string;
+  readonly facingMode?: "user" | "environment";
 }
 
 // Composant pour la grille de vignettes en mode spotlight - mémoïsé
@@ -281,6 +281,3 @@ export const VideoGrid = memo(function VideoGrid({
     </div>
   );
 });
-
-// Export nommé pour la rétrocompatibilité
-export default VideoGrid;

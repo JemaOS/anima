@@ -83,14 +83,14 @@
     <!-- Script de détection précoce du mode hors ligne -->
     <script>
       // Détecter si l'application est en mode standalone (installée)
-      window.isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
-                            window.navigator.standalone === true;
+      globalThis.isStandalone = globalThis.matchMedia('(display-mode: standalone)').matches ||
+                            globalThis.navigator.standalone === true;
 
       // Détecter le mode hors ligne initial
-      window.initialOfflineState = !navigator.onLine;
+      globalThis.initialOfflineState = !navigator.onLine;
 
       // Marquer le début du chargement pour les métriques de performance
-      window.appStartTime = performance.now();
+      globalThis.appStartTime = performance.now();
     </script>
   </head>
 

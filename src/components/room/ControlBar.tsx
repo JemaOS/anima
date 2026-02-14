@@ -5,23 +5,23 @@ import React, { useState, useCallback, memo, useMemo, useEffect } from "react";
 import { Icon } from "@/components/ui";
 
 interface ControlBarProps {
-  audioEnabled: boolean;
-  videoEnabled: boolean;
-  isScreenSharing: boolean;
-  handRaised: boolean;
-  onToggleAudio: () => void;
-  onToggleVideo: () => void;
-  onSwitchCamera?: () => void;
-  facingMode?: "user" | "environment";
-  onScreenShare: () => void;
-  onStopScreenShare: () => void;
-  onRaiseHand: () => void;
-  onLowerHand: () => void;
-  onOpenChat: () => void;
-  onOpenParticipants: () => void;
-  onOpenSettings?: () => void;
-  onLeave: () => void;
-  onOpenReactions: () => void;
+  readonly audioEnabled: boolean;
+  readonly videoEnabled: boolean;
+  readonly isScreenSharing: boolean;
+  readonly handRaised: boolean;
+  readonly onToggleAudio: () => void;
+  readonly onToggleVideo: () => void;
+  readonly onSwitchCamera?: () => void;
+  readonly facingMode?: "user" | "environment";
+  readonly onScreenShare: () => void;
+  readonly onStopScreenShare: () => void;
+  readonly onRaiseHand: () => void;
+  readonly onLowerHand: () => void;
+  readonly onOpenChat: () => void;
+  readonly onOpenParticipants: () => void;
+  readonly onOpenSettings?: () => void;
+  readonly onLeave: () => void;
+  readonly onOpenReactions: () => void;
 }
 
 // Détecter si l'appareil est mobile - mémoïsé
@@ -29,7 +29,7 @@ const isMobileDevice = () => {
   return (
     /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
       navigator.userAgent
-    ) || "ontouchstart" in window
+    ) || "ontouchstart" in globalThis
   );
 };
 
@@ -166,12 +166,12 @@ export const ControlBar = memo(function ControlBar({
   const isMobile = useMemo(() => isMobileDevice(), []);
 
   // Track screen width for responsive button visibility
-  const [screenWidth, setScreenWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024);
+  const [screenWidth, setScreenWidth] = useState(typeof globalThis !== 'undefined' ? globalThis.innerWidth : 1024);
 
   useEffect(() => {
-    const handleResize = () => setScreenWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    const handleResize = () => setScreenWidth(globalThis.innerWidth);
+    globalThis.addEventListener('resize', handleResize);
+    return () => globalThis.removeEventListener('resize', handleResize);
   }, []);
 
   // Also track if we need to show more/less buttons based on available space
@@ -312,6 +312,3 @@ export const ControlBar = memo(function ControlBar({
     </div>
   );
 });
-
-// Export nommé pour la rétrocompatibilité
-export default ControlBar;

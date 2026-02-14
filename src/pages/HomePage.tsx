@@ -3,7 +3,7 @@
 
 import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Button, Icon } from "@/components/ui";
+import { Icon } from "@/components/ui";
 import {
   generateRoomCode,
   getRecentRooms,

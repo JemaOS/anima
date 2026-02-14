@@ -4,9 +4,9 @@
 import React from "react";
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "danger" | "ghost";
-  size?: "sm" | "md" | "lg" | "icon";
-  children: React.ReactNode;
+  readonly variant?: "primary" | "secondary" | "danger" | "ghost";
+  readonly size?: "sm" | "md" | "lg" | "icon";
+  readonly children: React.ReactNode;
 }
 
 export function Button({

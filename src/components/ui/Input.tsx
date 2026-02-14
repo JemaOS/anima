@@ -4,7 +4,7 @@
 import React, { forwardRef } from "react";
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  error?: string;
+  readonly error?: string;
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(

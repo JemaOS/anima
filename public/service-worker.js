@@ -57,7 +57,7 @@ const APP_ROUTES = [
 ];
 
 // Installation - Mise en cache des ressources statiques critiques
-self.addEventListener("install", (event) => {
+globalThis.addEventListener("install", (event) => {
   console.log("[Service Worker] Installation v" + CACHE_VERSION);
 
   event.waitUntil(
@@ -69,11 +69,11 @@ self.addEventListener("install", (event) => {
     })
   );
 
-  self.skipWaiting();
+  globalThis.skipWaiting();
 });
 
 // Activation - Nettoyage des anciens caches
-self.addEventListener("activate", (event) => {
+globalThis.addEventListener("activate", (event) => {
   console.log("[Service Worker] Activation v" + CACHE_VERSION);
 
   event.waitUntil(
@@ -97,7 +97,7 @@ self.addEventListener("activate", (event) => {
   );
 
   // Prendre le contrôle immédiatement
-  return self.clients.claim();
+  return globalThis.clients.claim();
 });
 
 // Fonction utilitaire pour vérifier si une URL doit être mise en cache
@@ -141,7 +141,7 @@ const getCacheForRequest = (request) => {
 };
 
 // Interception des requêtes - Stratégie optimisée
-self.addEventListener("fetch", (event) => {
+globalThis.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = request.url;
 
@@ -242,9 +242,9 @@ self.addEventListener("fetch", (event) => {
 });
 
 // Gestion des messages depuis la page principale
-self.addEventListener("message", (event) => {
+globalThis.addEventListener("message", (event) => {
   if (event.data && event.data.type === "SKIP_WAITING") {
-    self.skipWaiting();
+    globalThis.skipWaiting();
   }
 
   // Message pour vérifier la version du cache
@@ -256,7 +256,7 @@ self.addEventListener("message", (event) => {
 
   // Message pour vérifier si une mise à jour est disponible
   if (event.data && event.data.type === "CHECK_UPDATE") {
-    self.registration.update().then(() => {
+    globalThis.registration.update().then(() => {
       if (event.ports && event.ports[0]) {
         event.ports[0].postMessage({ updated: true });
       }
@@ -297,7 +297,7 @@ self.addEventListener("message", (event) => {
 });
 
 // Gestion de la synchronisation en arrière-plan (pour les messages hors ligne)
-self.addEventListener("sync", (event) => {
+globalThis.addEventListener("sync", (event) => {
   if (event.tag === "sync-messages") {
     event.waitUntil(syncMessages());
   }
@@ -312,7 +312,7 @@ async function syncMessages() {
   console.log("[Service Worker] Synchronisation des messages...");
 
   // Notifier tous les clients que la sync commence
-  const clients = await self.clients.matchAll();
+  const clients = await globalThis.clients.matchAll();
   clients.forEach(client => {
     client.postMessage({
       type: 'SYNC_STARTED',
@@ -335,7 +335,7 @@ async function syncMessages() {
 async function syncPendingActions() {
   console.log("[Service Worker] Synchronisation des actions en attente...");
 
-  const clients = await self.clients.matchAll();
+  const clients = await globalThis.clients.matchAll();
   clients.forEach(client => {
     client.postMessage({
       type: 'SYNC_STARTED',
@@ -352,7 +352,7 @@ async function syncPendingActions() {
 }
 
 // Gestion des notifications push (pour les appels entrants)
-self.addEventListener("push", (event) => {
+globalThis.addEventListener("push", (event) => {
   if (event.data) {
     const data = event.data.json();
 
@@ -409,13 +409,13 @@ self.addEventListener("push", (event) => {
     }
 
     event.waitUntil(
-      self.registration.showNotification(data.title || "Anima", notificationOptions)
+      globalThis.registration.showNotification(data.title || "Anima", notificationOptions)
     );
   }
 });
 
 // Gestion du clic sur les notifications
-self.addEventListener("notificationclick", (event) => {
+globalThis.addEventListener("notificationclick", (event) => {
   const notification = event.notification;
   const action = event.action;
   const data = notification.data || {};
@@ -508,16 +508,16 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 // Gestion de la fermeture des notifications
-self.addEventListener("notificationclose", (event) => {
+globalThis.addEventListener("notificationclose", (event) => {
   console.log("[Service Worker] Notification fermée:", event.notification.tag);
 });
 
 // Gestion des erreurs de notification
-self.addEventListener("error", (event) => {
+globalThis.addEventListener("error", (event) => {
   console.error("[Service Worker] Erreur:", event.error);
 });
 
 // Gestion des rejets de promesses non catchés
-self.addEventListener("unhandledrejection", (event) => {
+globalThis.addEventListener("unhandledrejection", (event) => {
   console.error("[Service Worker] Rejet non géré:", event.reason);
 });

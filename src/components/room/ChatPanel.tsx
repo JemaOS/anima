@@ -4,8 +4,8 @@ import { ChatMessage } from "@/types";
 import { convertEmoticons } from "@/utils/chatHelpers";
 
 interface ChatPanelProps {
-  messages: ChatMessage[];
-  onSendMessage?: (content: string) => void;
+  readonly messages: ChatMessage[];
+  readonly onSendMessage?: (content: string) => void;
 }
 
 export function ChatPanel({ messages, onSendMessage }: ChatPanelProps) {

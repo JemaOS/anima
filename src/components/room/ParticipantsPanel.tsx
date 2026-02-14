@@ -3,8 +3,8 @@ import { Icon, Avatar } from "@/components/ui";
 import { Participant } from "@/types";
 
 interface ParticipantsPanelProps {
-  participants?: Map<string, Participant>;
-  localParticipant?: Participant;
+  readonly participants?: Map<string, Participant>;
+  readonly localParticipant?: Participant;
 }
 
 export function ParticipantsPanel({

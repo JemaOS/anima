@@ -19,14 +19,14 @@ interface MediaDeviceInfo {
 }
 
 interface SettingsPanelProps {
-  onDeviceChange?: (type: "audio" | "video", deviceId: string) => void;
-  onVideoQualityChange?: (quality: VideoQualityLevel) => void;
-  onVideoStyleChange?: (style: VideoStyle) => void;
-  currentAudioDevice?: string;
-  currentVideoDevice?: string;
-  currentVideoQuality?: VideoQualityLevel;
-  currentVideoStyle?: VideoStyle;
-  isOpen: boolean;
+  readonly onDeviceChange?: (type: "audio" | "video", deviceId: string) => void;
+  readonly onVideoQualityChange?: (quality: VideoQualityLevel) => void;
+  readonly onVideoStyleChange?: (style: VideoStyle) => void;
+  readonly currentAudioDevice?: string;
+  readonly currentVideoDevice?: string;
+  readonly currentVideoQuality?: VideoQualityLevel;
+  readonly currentVideoStyle?: VideoStyle;
+  readonly isOpen: boolean;
 }
 
 export function SettingsPanel({
@@ -137,7 +137,7 @@ export function SettingsPanel({
 
   // Copy meeting link
   const copyMeetingLink = async () => {
-    const url = window.location.href;
+    const url = globalThis.location.href;
     try {
       await navigator.clipboard.writeText(url);
       setLinkCopied(true);

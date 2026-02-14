@@ -14,23 +14,23 @@ import { SettingsPanel } from "./SettingsPanel";
 export * from "@/utils/videoStyles";
 
 interface SidePanelProps {
-  type: "chat" | "participants" | "settings";
-  isOpen: boolean;
-  onClose: () => void;
+  readonly type: "chat" | "participants" | "settings";
+  readonly isOpen: boolean;
+  readonly onClose: () => void;
   // Chat
-  messages?: ChatMessage[];
-  onSendMessage?: (content: string) => void;
+  readonly messages?: ChatMessage[];
+  readonly onSendMessage?: (content: string) => void;
   // Participants
-  participants?: Map<string, Participant>;
-  localParticipant?: Participant;
+  readonly participants?: Map<string, Participant>;
+  readonly localParticipant?: Participant;
   // Settings
-  onDeviceChange?: (type: "audio" | "video", deviceId: string) => void;
-  onVideoQualityChange?: (quality: VideoQualityLevel) => void;
-  onVideoStyleChange?: (style: VideoStyle) => void;
-  currentAudioDevice?: string;
-  currentVideoDevice?: string;
-  currentVideoQuality?: VideoQualityLevel;
-  currentVideoStyle?: VideoStyle;
+  readonly onDeviceChange?: (type: "audio" | "video", deviceId: string) => void;
+  readonly onVideoQualityChange?: (quality: VideoQualityLevel) => void;
+  readonly onVideoStyleChange?: (style: VideoStyle) => void;
+  readonly currentAudioDevice?: string;
+  readonly currentVideoDevice?: string;
+  readonly currentVideoQuality?: VideoQualityLevel;
+  readonly currentVideoStyle?: VideoStyle;
 }
 
 export function SidePanel({

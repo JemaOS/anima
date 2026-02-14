@@ -276,8 +276,8 @@ export function useOfflineSupport(options: UseOfflineSupportOptions = {}): Offli
       onGoneOffline?.();
     };
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    globalThis.addEventListener('online', handleOnline);
+    globalThis.addEventListener('offline', handleOffline);
 
     // Vérifier l'état initial
     if (navigator.onLine && wasOfflineRef.current) {
@@ -285,8 +285,8 @@ export function useOfflineSupport(options: UseOfflineSupportOptions = {}): Offli
     }
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      globalThis.removeEventListener('online', handleOnline);
+      globalThis.removeEventListener('offline', handleOffline);
     };
   }, [autoSync, onBackOnline, onGoneOffline, syncPendingData]);
 
@@ -348,8 +348,8 @@ export function useOfflineStatus(): {
     const handleOnline = () => setIsOffline(false);
     const handleOffline = () => setIsOffline(true);
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    globalThis.addEventListener('online', handleOnline);
+    globalThis.addEventListener('offline', handleOffline);
 
     // Vérifier s'il y a des données en attente
     const checkPendingData = async () => {
@@ -366,8 +366,8 @@ export function useOfflineStatus(): {
     checkPendingData();
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      globalThis.removeEventListener('online', handleOnline);
+      globalThis.removeEventListener('offline', handleOffline);
     };
   }, []);
 
@@ -448,5 +448,3 @@ export function useRoomMessageQueue(roomId: string): {
     isLoading,
   };
 }
-
-export default useOfflineSupport;

@@ -158,8 +158,8 @@ export function useNetworkStatus(options: UseNetworkStatusOptions = {}): Network
       onOnline?.();
     };
 
-    window.addEventListener('online', handleOnline);
-    return () => window.removeEventListener('online', handleOnline);
+    globalThis.addEventListener('online', handleOnline);
+    return () => globalThis.removeEventListener('online', handleOnline);
   }, [onOnline, updateStatus]);
 
   // Handle offline event
@@ -169,8 +169,8 @@ export function useNetworkStatus(options: UseNetworkStatusOptions = {}): Network
       onOffline?.();
     };
 
-    window.addEventListener('offline', handleOffline);
-    return () => window.removeEventListener('offline', handleOffline);
+    globalThis.addEventListener('offline', handleOffline);
+    return () => globalThis.removeEventListener('offline', handleOffline);
   }, [onOffline, updateStatus]);
 
   // Poll for connection changes
@@ -230,12 +230,12 @@ export function useIsOnline(): boolean {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    globalThis.addEventListener('online', handleOnline);
+    globalThis.addEventListener('offline', handleOffline);
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      globalThis.removeEventListener('online', handleOnline);
+      globalThis.removeEventListener('offline', handleOffline);
     };
   }, []);
 
@@ -418,12 +418,12 @@ export function useReconnection(
       }
     };
 
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener('online', handleOnline);
+    globalThis.addEventListener('offline', handleOffline);
+    globalThis.addEventListener('online', handleOnline);
 
     return () => {
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('online', handleOnline);
+      globalThis.removeEventListener('offline', handleOffline);
+      globalThis.removeEventListener('online', handleOnline);
       clearTimers();
     };
   }, [autoReconnect, isReconnecting, reset, startReconnecting, stopReconnecting, clearTimers]);
@@ -438,5 +438,3 @@ export function useReconnection(
     reset,
   };
 }
-
-export default useNetworkStatus;

@@ -80,8 +80,8 @@ export class ErrorBoundary extends BaseErrorBoundary {
     onError?.(error, errorInfo);
 
     // Report to error tracking service if available
-    if (typeof window !== 'undefined' && (window as any).Sentry) {
-      (window as any).Sentry.captureException(error, {
+    if (typeof globalThis !== 'undefined' && (globalThis as any).Sentry) {
+      (globalThis as any).Sentry.captureException(error, {
         extra: { 
           componentStack: errorInfo.componentStack,
           componentName 
@@ -94,7 +94,7 @@ export class ErrorBoundary extends BaseErrorBoundary {
    * Reload the page as a last resort
    */
   handleReload = () => {
-    window.location.reload();
+    globalThis.location.reload();
   };
 
   render() {
@@ -208,7 +208,7 @@ export class RoomErrorBoundary extends BaseErrorBoundary {
   }
 
   handleLeaveRoom = () => {
-    window.location.href = '/';
+    globalThis.location.href = '/';
   };
 
   render() {
@@ -295,5 +295,3 @@ export class VideoErrorBoundary extends BaseErrorBoundary {
     return children;
   }
 }
-
-export default ErrorBoundary;

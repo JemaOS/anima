@@ -8,7 +8,6 @@ import { saveRecentRoom } from "@/utils/helpers";
 import {
   getOptimalVideoConstraints,
   getOptimalAudioConstraints,
-  getDeviceType,
 } from "@/utils/videoConstraints";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { withTimeoutRace } from "@/utils/retry";
@@ -253,7 +252,7 @@ export function PreJoinPage() {
 
       await prepareForJoin();
 
-      const hostPeerId = getHostPeerIdFromUrl(window.location.hash, code, isHost);
+      const hostPeerId = getHostPeerIdFromUrl(globalThis.location.hash, code, isHost);
 
       navigate(`/room/${code}`, {
         state: {
