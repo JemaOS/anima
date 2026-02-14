@@ -73,6 +73,35 @@ export function useRetryQueue<T>(
     setIsProcessing(false);
   }, []);
 
+  const updateQueueItem = useCallback((id: string, updates: Partial<RetryQueueItem<T>>) => {
+    setQueue(prev => prev.map(q => (q.id === id ? { ...q, ...updates } : q)));
+  }, []);
+
+  const processItem = useCallback(async (item: RetryQueueItem<T>) => {
+    updateQueueItem(item.id, { status: 'running' });
+
+    try {
+      const result = await retry(item.fn, {
+        ...retryOptions,
+        signal: abortControllerRef.current?.signal,
+        onRetry: (error, attempt) => {
+          updateQueueItem(item.id, { attempts: attempt });
+        },
+      });
+
+      updateQueueItem(item.id, { status: 'completed', result });
+      return { id: item.id, success: true };
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      updateQueueItem(item.id, { status: 'failed', error: err });
+      return { id: item.id, success: false };
+    }
+  }, [retryOptions, updateQueueItem]);
+
+  const processBatch = useCallback(async (batch: RetryQueueItem<T>[]) => {
+    return Promise.allSettled(batch.map(processItem));
+  }, [processItem]);
+
   const process = useCallback(async (): Promise<void> => {
     if (isProcessing) return;
 
@@ -82,66 +111,21 @@ export function useRetryQueue<T>(
     const pending = queue.filter(item => item.status === 'pending');
     
     for (let i = 0; i < pending.length; i += concurrency) {
-      if (abortControllerRef.current.signal.aborted) {
+      if (abortControllerRef.current?.signal.aborted) {
         break;
       }
 
       const batch = pending.slice(i, i + concurrency);
-      
-      const results = await Promise.allSettled(
-        batch.map(async item => {
-          setQueue(prev =>
-            prev.map(q =>
-              q.id === item.id ? { ...q, status: 'running' } : q
-            )
-          );
-
-          try {
-            const result = await retry(item.fn, {
-              ...retryOptions,
-              signal: abortControllerRef.current?.signal,
-              onRetry: (error, attempt) => {
-                setQueue(prev =>
-                  prev.map(q =>
-                    q.id === item.id ? { ...q, attempts: attempt } : q
-                  )
-                );
-              },
-            });
-
-            setQueue(prev =>
-              prev.map(q =>
-                q.id === item.id
-                  ? { ...q, status: 'completed', result }
-                  : q
-              )
-            );
-
-            return { id: item.id, success: true };
-          } catch (error) {
-            const err = error instanceof Error ? error : new Error(String(error));
-            
-            setQueue(prev =>
-              prev.map(q =>
-                q.id === item.id
-                  ? { ...q, status: 'failed', error: err }
-                  : q
-              )
-            );
-
-            return { id: item.id, success: false };
-          }
-        })
-      );
+      const results = await processBatch(batch);
 
       // Check if we should stop on error
-      if (stopOnError && results.some(r => r.status === 'rejected' || !r.value?.success)) {
+      if (stopOnError && results.some(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success))) {
         break;
       }
     }
 
     setIsProcessing(false);
-  }, [queue, isProcessing, concurrency, stopOnError, retryOptions]);
+  }, [queue, isProcessing, concurrency, stopOnError, processBatch]);
 
   const retryItem = useCallback(async (id: string): Promise<void> => {
     const item = queue.find(q => q.id === id);

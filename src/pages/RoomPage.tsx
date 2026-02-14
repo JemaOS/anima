@@ -69,80 +69,103 @@ type ParticipantAction =
     }
   | { type: "CLEAR_ALL" };
 
+// Helper functions for participantsReducer to reduce cognitive complexity
+function handleAddParticipant(
+  state: Map<string, Participant>,
+  payload: { id: string; participant: Participant },
+): Map<string, Participant> {
+  const newState = new Map(state);
+  // CRITICAL FIX: Check if there's an existing entry with a stream (from race condition)
+  // If so, preserve the stream when adding the participant info
+  const existing = state.get(payload.id);
+  if (existing?.stream) {
+    console.log(
+      "[Reducer] ADD_PARTICIPANT: Preserving existing stream from placeholder",
+      {
+        id: payload.id,
+        existingName: existing.name,
+        newName: payload.participant.name,
+        hasStream: !!existing.stream,
+      },
+    );
+    newState.set(payload.id, {
+      ...payload.participant,
+      stream: existing.stream, // Preserve the stream!
+    });
+  } else {
+    newState.set(payload.id, payload.participant);
+  }
+  return newState;
+}
+
+function handleSetStream(
+  state: Map<string, Participant>,
+  payload: { id: string; stream: MediaStream },
+): Map<string, Participant> {
+  const existing = state.get(payload.id);
+  if (!existing) {
+    // Participant doesn't exist yet - this can happen due to race condition
+    // Store the stream anyway, it will be used when participant is added
+    console.warn(
+      "[Reducer] SET_STREAM: Participant not found, creating placeholder",
+      payload.id,
+    );
+    const newState = new Map(state);
+    newState.set(payload.id, {
+      id: payload.id,
+      name: "Connecting...",
+      stream: payload.stream,
+      audioEnabled: true,
+      videoEnabled: true,
+      screenSharing: false,
+      handRaised: false,
+    });
+    return newState;
+  }
+  // Only update if stream actually changed
+  if (existing.stream === payload.stream) return state;
+  const newState = new Map(state);
+  newState.set(payload.id, {
+    ...existing,
+    stream: payload.stream,
+  });
+  return newState;
+}
+
+function handleUpdateParticipant(
+  state: Map<string, Participant>,
+  payload: { id: string; updates: Partial<Participant> },
+): Map<string, Participant> {
+  const existing = state.get(payload.id);
+  if (!existing) return state;
+  const newState = new Map(state);
+  newState.set(payload.id, {
+    ...existing,
+    ...payload.updates,
+  });
+  return newState;
+}
+
 function participantsReducer(
   state: Map<string, Participant>,
   action: ParticipantAction,
 ): Map<string, Participant> {
   switch (action.type) {
-    case "ADD_PARTICIPANT": {
-      const newState = new Map(state);
-      // CRITICAL FIX: Check if there's an existing entry with a stream (from race condition)
-      // If so, preserve the stream when adding the participant info
-      const existing = state.get(action.payload.id);
-      if (existing?.stream) {
-        console.log(
-          "[Reducer] ADD_PARTICIPANT: Preserving existing stream from placeholder",
-          {
-            id: action.payload.id,
-            existingName: existing.name,
-            newName: action.payload.participant.name,
-            hasStream: !!existing.stream,
-          },
-        );
-        newState.set(action.payload.id, {
-          ...action.payload.participant,
-          stream: existing.stream, // Preserve the stream!
-        });
-      } else {
-        newState.set(action.payload.id, action.payload.participant);
-      }
-      return newState;
-    }
+    case "ADD_PARTICIPANT":
+      return handleAddParticipant(state, action.payload);
+
     case "REMOVE_PARTICIPANT": {
       const newState = new Map(state);
       newState.delete(action.payload.id);
       return newState;
     }
-    case "UPDATE_PARTICIPANT": {
-      const existing = state.get(action.payload.id);
-      if (!existing) return state;
-      const newState = new Map(state);
-      newState.set(action.payload.id, {
-        ...existing,
-        ...action.payload.updates,
-      });
-      return newState;
-    }
-    case "SET_STREAM": {
-      const existing = state.get(action.payload.id);
-      if (!existing) {
-        // Participant doesn't exist yet - this can happen due to race condition
-        // Store the stream anyway, it will be used when participant is added
-        console.warn(
-          "[Reducer] SET_STREAM: Participant not found, creating placeholder",
-          action.payload.id,
-        );
-        const newState = new Map(state);
-        newState.set(action.payload.id, {
-          id: action.payload.id,
-          name: "Connecting...",
-          stream: action.payload.stream,
-          audioEnabled: true,
-          videoEnabled: true,
-          screenSharing: false,
-          handRaised: false,
-        });
-        return newState;
-      }
-      // Only update if stream actually changed
-      if (existing.stream === action.payload.stream) return state;
-      const newState = new Map(state);
-      newState.set(action.payload.id, {
-        ...existing,
-        stream: action.payload.stream,
-      });
-      return newState;
-    }
+
+    case "UPDATE_PARTICIPANT":
+      return handleUpdateParticipant(state, action.payload);
+
+    case "SET_STREAM":
+      return handleSetStream(state, action.payload);
+
     case "SET_AUDIO_LEVEL": {
       const existing = state.get(action.payload.id);
       if (!existing) return state;
@@ -158,6 +181,7 @@ function participantsReducer(
       });
       return newState;
     }
+
     case "SET_CONNECTION_QUALITY": {
       const existing = state.get(action.payload.id);
       if (!existing) return state;
@@ -170,8 +194,10 @@ function participantsReducer(
       });
       return newState;
     }
+
     case "CLEAR_ALL":
       return new Map();
+
     default:
       return state;
   }
@@ -321,61 +347,9 @@ export function RoomPage() {
     async (type: "audio" | "video", deviceId: string) => {
       try {
         if (type === "audio") {
-          setCurrentAudioDevice(deviceId);
-          // Get new audio stream with selected device
-          const newStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              ...getOptimalAudioConstraints(),
-              deviceId: { exact: deviceId },
-            },
-          });
-
-          const newAudioTrack = newStream.getAudioTracks()[0];
-          if (newAudioTrack && localStreamRef.current) {
-            // Stop old audio track
-            const oldAudioTrack = localStreamRef.current.getAudioTracks()[0];
-            if (oldAudioTrack) {
-              oldAudioTrack.stop();
-              localStreamRef.current.removeTrack(oldAudioTrack);
-            }
-
-            // Add new audio track with current enabled state
-            newAudioTrack.enabled = audioEnabled;
-            localStreamRef.current.addTrack(newAudioTrack);
-
-            // Update P2P manager with new stream
-            p2pManager.current?.updateLocalStream(localStreamRef.current);
-            setLocalStream(localStreamRef.current);
-          }
+          await handleAudioDeviceChange(deviceId);
         } else if (type === "video") {
-          setCurrentVideoDevice(deviceId);
-          // Get new video stream with selected device using optimal constraints
-          const videoConstraints = getOptimalVideoConstraints(
-            facingMode,
-            false,
-            deviceId,
-          );
-          const newStream = await navigator.mediaDevices.getUserMedia({
-            video: videoConstraints,
-          });
-
-          const newVideoTrack = newStream.getVideoTracks()[0];
-          if (newVideoTrack && localStreamRef.current) {
-            // Stop old video track
-            const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
-            if (oldVideoTrack) {
-              oldVideoTrack.stop();
-              localStreamRef.current.removeTrack(oldVideoTrack);
-            }
-
-            // Add new video track with current enabled state
-            newVideoTrack.enabled = videoEnabled;
-            localStreamRef.current.addTrack(newVideoTrack);
-
-            // Update P2P manager with new stream
-            p2pManager.current?.updateLocalStream(localStreamRef.current);
-            setLocalStream(localStreamRef.current);
-          }
+          await handleVideoDeviceChange(deviceId);
         }
       } catch (error) {
         console.error("Error changing device:", error);
@@ -387,6 +361,66 @@ export function RoomPage() {
     },
     [audioEnabled, videoEnabled, facingMode],
   );
+
+  const handleAudioDeviceChange = async (deviceId: string) => {
+    setCurrentAudioDevice(deviceId);
+    // Get new audio stream with selected device
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        ...getOptimalAudioConstraints(),
+        deviceId: { exact: deviceId },
+      },
+    });
+
+    const newAudioTrack = newStream.getAudioTracks()[0];
+    if (newAudioTrack && localStreamRef.current) {
+      // Stop old audio track
+      const oldAudioTrack = localStreamRef.current.getAudioTracks()[0];
+      if (oldAudioTrack) {
+        oldAudioTrack.stop();
+        localStreamRef.current.removeTrack(oldAudioTrack);
+      }
+
+      // Add new audio track with current enabled state
+      newAudioTrack.enabled = audioEnabled;
+      localStreamRef.current.addTrack(newAudioTrack);
+
+      // Update P2P manager with new stream
+      p2pManager.current?.updateLocalStream(localStreamRef.current);
+      setLocalStream(localStreamRef.current);
+    }
+  };
+
+  const handleVideoDeviceChange = async (deviceId: string) => {
+    setCurrentVideoDevice(deviceId);
+    // Get new video stream with selected device using optimal constraints
+    const videoConstraints = getOptimalVideoConstraints(
+      facingMode,
+      false,
+      deviceId,
+    );
+    const newStream = await navigator.mediaDevices.getUserMedia({
+      video: videoConstraints,
+    });
+
+    const newVideoTrack = newStream.getVideoTracks()[0];
+    if (newVideoTrack && localStreamRef.current) {
+      // Stop old video track
+      const oldVideoTrack = localStreamRef.current.getVideoTracks()[0];
+      if (oldVideoTrack) {
+        oldVideoTrack.stop();
+        localStreamRef.current.removeTrack(oldVideoTrack);
+      }
+
+      // Add new video track with current enabled state
+      newVideoTrack.enabled = videoEnabled;
+      localStreamRef.current.addTrack(newVideoTrack);
+
+      // Update P2P manager with new stream
+      p2pManager.current?.updateLocalStream(localStreamRef.current);
+      setLocalStream(localStreamRef.current);
+    }
+  };
 
   // Handle video quality change from settings panel
   const handleVideoQualityChange = useCallback(
@@ -466,6 +500,153 @@ export function RoomPage() {
     saveVideoStyle(style);
   }, []);
 
+  // --- P2P Event Handlers ---
+
+  // Handle P2P messages with reducer dispatch
+  const handleP2PMessage = useCallback((message: P2PMessage) => {
+    switch (message.type) {
+      case "chat-message":
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: generateId(),
+            senderId: message.senderId,
+            senderName: message.data.senderName,
+            content: message.data.content,
+            timestamp: message.data.timestamp,
+          },
+        ]);
+        break;
+
+      case "hand-raised":
+        dispatchParticipants({
+          type: "UPDATE_PARTICIPANT",
+          payload: { id: message.senderId, updates: { handRaised: true } },
+        });
+        break;
+
+      case "hand-lowered":
+        dispatchParticipants({
+          type: "UPDATE_PARTICIPANT",
+          payload: { id: message.senderId, updates: { handRaised: false } },
+        });
+        break;
+
+      case "media-state":
+        dispatchParticipants({
+          type: "UPDATE_PARTICIPANT",
+          payload: {
+            id: message.senderId,
+            updates: {
+              audioEnabled: message.data.audioEnabled,
+              videoEnabled: message.data.videoEnabled,
+              // Handle screen sharing state if present
+              ...(message.data.screenSharing !== undefined && {
+                screenSharing: message.data.screenSharing,
+              }),
+            },
+          },
+        });
+        break;
+    }
+  }, []);
+
+  const handlePeerConnected = useCallback((peerId: string, peerInfo: PeerInfo) => {
+    dispatchParticipants({
+      type: "ADD_PARTICIPANT",
+      payload: {
+        id: peerId,
+        participant: {
+          id: peerId,
+          name: peerInfo.name,
+          audioEnabled: true,
+          videoEnabled: true,
+          screenSharing: false,
+          handRaised: false,
+        },
+      },
+    });
+  }, []);
+
+  const handlePeerDisconnected = useCallback((peerId: string) => {
+    dispatchParticipants({
+      type: "REMOVE_PARTICIPANT",
+      payload: { id: peerId },
+    });
+  }, []);
+
+  const handleStreamReceived = useCallback((peerId: string, stream: MediaStream) => {
+    console.log("[RoomPage] 🎥 Received stream from peer:", peerId, {
+      streamId: stream.id,
+      audioTracks: stream.getAudioTracks().length,
+      videoTracks: stream.getVideoTracks().length,
+    });
+
+    // Ensure all tracks are enabled
+    stream.getTracks().forEach((track) => {
+      track.enabled = true;
+    });
+
+    // Create new stream reference to force React re-render
+    const streamWithEnabledTracks = new MediaStream(stream.getTracks());
+
+    dispatchParticipants({
+      type: "SET_STREAM",
+      payload: { id: peerId, stream: streamWithEnabledTracks },
+    });
+
+    // Update videoEnabled based on whether we have a video track
+    const hasVideoTrack = stream.getVideoTracks().length > 0;
+    if (hasVideoTrack) {
+      dispatchParticipants({
+        type: "UPDATE_PARTICIPANT",
+        payload: {
+          id: peerId,
+          updates: { videoEnabled: true },
+        },
+      });
+    }
+
+    // Add audio analyser for the new stream
+    p2pManager.current?.addAudioAnalyser(peerId, stream);
+  }, []);
+
+  const handleTrackUnmuted = useCallback((peerId: string, stream: MediaStream) => {
+    console.log("[RoomPage] 🔄 Track unmuted callback received", { peerId });
+
+    // Force update the participant's stream by creating a new MediaStream reference
+    const newStreamRef = new MediaStream(stream.getTracks());
+
+    dispatchParticipants({
+      type: "SET_STREAM",
+      payload: { id: peerId, stream: newStreamRef },
+    });
+
+    dispatchParticipants({
+      type: "UPDATE_PARTICIPANT",
+      payload: {
+        id: peerId,
+        updates: { videoEnabled: true },
+      },
+    });
+  }, []);
+
+  const handleICEStateChange = useCallback((peerId: string, iceState: ICEConnectionState) => {
+    setIceStatus((prev) => {
+      const newMap = new Map(prev);
+      newMap.set(peerId, iceState);
+      return newMap;
+    });
+
+    if (iceState === ICEConnectionState.FAILED) {
+      setMediaError("Problème de connexion réseau. Tentative de reconnexion...");
+      setTimeout(() => setMediaError(null), 5000);
+    } else if (iceState === ICEConnectionState.DISCONNECTED) {
+      setMediaError("Connexion instable. Reconnexion en cours...");
+      setTimeout(() => setMediaError(null), 3000);
+    }
+  }, []);
+
   // Initialization - proper sequence to avoid race conditions
   // With improved Android support
   useEffect(() => {
@@ -494,180 +675,12 @@ export function RoomPage() {
       p2pManager.current = manager;
 
       // 2. Setup ALL callbacks BEFORE any connections
-      manager.onPeerConnected((peerId, peerInfo) => {
-        dispatchParticipants({
-          type: "ADD_PARTICIPANT",
-          payload: {
-            id: peerId,
-            participant: {
-              id: peerId,
-              name: peerInfo.name,
-              audioEnabled: true,
-              videoEnabled: true,
-              screenSharing: false,
-              handRaised: false,
-            },
-          },
-        });
-      });
-
-      manager.onPeerDisconnected((peerId) => {
-        dispatchParticipants({
-          type: "REMOVE_PARTICIPANT",
-          payload: { id: peerId },
-        });
-      });
-
-      manager.onMessage((message: P2PMessage) => {
-        handleP2PMessage(message);
-      });
-
-      manager.onStream((peerId, stream) => {
-        console.log("[RoomPage] 🎥 Received stream from peer:", peerId, {
-          streamId: stream.id,
-          audioTracks: stream.getAudioTracks().length,
-          videoTracks: stream.getVideoTracks().length,
-          audioTrackStates: stream
-            .getAudioTracks()
-            .map((t) => ({
-              id: t.id,
-              enabled: t.enabled,
-              muted: t.muted,
-              readyState: t.readyState,
-            })),
-          videoTrackStates: stream
-            .getVideoTracks()
-            .map((t) => ({
-              id: t.id,
-              enabled: t.enabled,
-              muted: t.muted,
-              readyState: t.readyState,
-            })),
-        });
-
-        // CRITICAL FIX: Ensure all tracks are enabled before creating new stream
-        stream.getAudioTracks().forEach((track) => {
-          console.log("[RoomPage] 🔊 Audio track state before enable:", {
-            id: track.id,
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState,
-          });
-          track.enabled = true;
-          console.log("[RoomPage] 🔊 Audio track state after enable:", {
-            id: track.id,
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState,
-          });
-        });
-
-        stream.getVideoTracks().forEach((track) => {
-          console.log("[RoomPage] 📹 Video track state before enable:", {
-            id: track.id,
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState,
-          });
-          track.enabled = true;
-          console.log("[RoomPage] 📹 Video track state after enable:", {
-            id: track.id,
-            enabled: track.enabled,
-            muted: track.muted,
-            readyState: track.readyState,
-          });
-        });
-
-        // CRITICAL FIX: Create a new MediaStream to force React re-render
-        // This ensures VideoTile receives a new stream reference
-        const streamWithEnabledTracks = new MediaStream(stream.getTracks());
-
-        dispatchParticipants({
-          type: "SET_STREAM",
-          payload: { id: peerId, stream: streamWithEnabledTracks },
-        });
-
-        // CRITICAL FIX: Also update videoEnabled based on whether we have a video track
-        // This ensures the UI shows video when a new track is received
-        const hasVideoTrack = stream.getVideoTracks().length > 0;
-        const videoTrack = stream.getVideoTracks()[0];
-        const isVideoEnabled =
-          hasVideoTrack &&
-          videoTrack.enabled &&
-          videoTrack.readyState === "live";
-
-        console.log("[RoomPage] 📹 Updating participant videoEnabled state:", {
-          peerId,
-          hasVideoTrack,
-          isVideoEnabled,
-          trackEnabled: videoTrack?.enabled,
-          trackReadyState: videoTrack?.readyState,
-        });
-
-        if (hasVideoTrack) {
-          dispatchParticipants({
-            type: "UPDATE_PARTICIPANT",
-            payload: {
-              id: peerId,
-              updates: { videoEnabled: true },
-            },
-          });
-        }
-
-        // Add audio analyser for the new stream
-        manager.addAudioAnalyser(peerId, stream);
-      });
-
-      // CRITICAL FIX: Handle track unmuted events
-      // This is called when a video track is unmuted after replaceTrack()
-      // We need to force React to update the participant's stream reference
-      manager.onTrackUnmuted((peerId, stream) => {
-        console.log("[RoomPage] 🔄 Track unmuted callback received", {
-          peerId,
-          streamId: stream.id,
-          videoTracks: stream.getVideoTracks().length,
-          audioTracks: stream.getAudioTracks().length,
-        });
-
-        // Force update the participant's stream by creating a new MediaStream reference
-        // This ensures React detects the change and re-renders the VideoTile
-        const newStreamRef = new MediaStream(stream.getTracks());
-
-        console.log(
-          "[RoomPage] 🔄 Creating new stream reference for React update",
-          {
-            peerId,
-            oldStreamId: stream.id,
-            newStreamId: newStreamRef.id,
-            videoTracks: newStreamRef.getVideoTracks().map((t) => ({
-              id: t.id,
-              enabled: t.enabled,
-              muted: t.muted,
-              readyState: t.readyState,
-            })),
-          },
-        );
-
-        // Update the participant's stream with the new reference
-        dispatchParticipants({
-          type: "SET_STREAM",
-          payload: { id: peerId, stream: newStreamRef },
-        });
-
-        // Also ensure videoEnabled is set to true since we're receiving video data
-        dispatchParticipants({
-          type: "UPDATE_PARTICIPANT",
-          payload: {
-            id: peerId,
-            updates: { videoEnabled: true },
-          },
-        });
-
-        console.log(
-          "[RoomPage] ✅ Participant stream and videoEnabled updated",
-          { peerId },
-        );
-      });
+      manager.onPeerConnected(handlePeerConnected);
+      manager.onPeerDisconnected(handlePeerDisconnected);
+      manager.onMessage(handleP2PMessage);
+      manager.onStream(handleStreamReceived);
+      manager.onTrackUnmuted(handleTrackUnmuted);
+      manager.onICEStateChange(handleICEStateChange);
 
       manager.onConnectionStateChange((peerId, connectionState) => {
         // Update overall connection status based on peer states
@@ -683,26 +696,6 @@ export function RoomPage() {
           if (allFailed && manager.getPeers().length > 0) {
             setConnectionStatus("failed");
           }
-        }
-      });
-
-      // ICE state change callback for detailed connection monitoring
-      manager.onICEStateChange((peerId, iceState) => {
-        setIceStatus((prev) => {
-          const newMap = new Map(prev);
-          newMap.set(peerId, iceState);
-          return newMap;
-        });
-
-        // Show user-friendly messages for ICE issues
-        if (iceState === ICEConnectionState.FAILED) {
-          setMediaError(
-            "Problème de connexion réseau. Tentative de reconnexion...",
-          );
-          setTimeout(() => setMediaError(null), 5000);
-        } else if (iceState === ICEConnectionState.DISCONNECTED) {
-          setMediaError("Connexion instable. Reconnexion en cours...");
-          setTimeout(() => setMediaError(null), 3000);
         }
       });
 
@@ -907,56 +900,17 @@ export function RoomPage() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, state, captureLocalMedia]);
-
-  // Handle P2P messages with reducer dispatch
-  const handleP2PMessage = useCallback((message: P2PMessage) => {
-    switch (message.type) {
-      case "chat-message":
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: generateId(),
-            senderId: message.senderId,
-            senderName: message.data.senderName,
-            content: message.data.content,
-            timestamp: message.data.timestamp,
-          },
-        ]);
-        break;
-
-      case "hand-raised":
-        dispatchParticipants({
-          type: "UPDATE_PARTICIPANT",
-          payload: { id: message.senderId, updates: { handRaised: true } },
-        });
-        break;
-
-      case "hand-lowered":
-        dispatchParticipants({
-          type: "UPDATE_PARTICIPANT",
-          payload: { id: message.senderId, updates: { handRaised: false } },
-        });
-        break;
-
-      case "media-state":
-        dispatchParticipants({
-          type: "UPDATE_PARTICIPANT",
-          payload: {
-            id: message.senderId,
-            updates: {
-              audioEnabled: message.data.audioEnabled,
-              videoEnabled: message.data.videoEnabled,
-              // Handle screen sharing state if present
-              ...(message.data.screenSharing !== undefined && {
-                screenSharing: message.data.screenSharing,
-              }),
-            },
-          },
-        });
-        break;
-    }
-  }, []);
+  }, [
+    code,
+    state,
+    captureLocalMedia,
+    handlePeerConnected,
+    handlePeerDisconnected,
+    handleP2PMessage,
+    handleStreamReceived,
+    handleTrackUnmuted,
+    handleICEStateChange,
+  ]);
 
   // Broadcast to all peers - memoized
   const broadcast = useCallback(

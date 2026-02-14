@@ -1,54 +1,43 @@
-export function calculateGridLayout(count: number, screenSize: string) {
-  // For ultra-small screens (iPhone 5s - 320px)
-  if (screenSize === "xxs") {
+type Layout = { cols: number; rows: number };
+
+const LAYOUT_CONFIGS: Record<string, (count: number) => Layout> = {
+  xxs: (count) => {
     if (count === 1) return { cols: 1, rows: 1 };
     if (count === 2) return { cols: 1, rows: 2 };
     if (count <= 4) return { cols: 2, rows: 2 };
     return { cols: 2, rows: Math.ceil(count / 2) };
-  }
-
-  // For very small screens (4-5 inch phones)
-  if (screenSize === "xs") {
+  },
+  xs: (count) => {
     if (count === 1) return { cols: 1, rows: 1 };
     if (count === 2) return { cols: 1, rows: 2 };
     if (count <= 4) return { cols: 2, rows: 2 };
     if (count <= 6) return { cols: 2, rows: 3 };
     return { cols: 2, rows: 4 };
-  }
-
-  // For small screens (5-6 inch phones)
-  if (screenSize === "sm") {
-    if (count === 1) return { cols: 1, rows: 1 };
-    if (count === 2) return { cols: 1, rows: 2 };
-    if (count <= 4) return { cols: 2, rows: 2 };
-    if (count <= 6) return { cols: 2, rows: 3 };
-    return { cols: 2, rows: 4 };
-  }
-
-  // For foldable devices (Honor Magic V3, etc.)
-  if (screenSize === "foldable") {
+  },
+  md: (count) => {
     if (count === 1) return { cols: 1, rows: 1 };
     if (count === 2) return { cols: 2, rows: 1 };
     if (count <= 4) return { cols: 2, rows: 2 };
     if (count <= 6) return { cols: 3, rows: 2 };
     return { cols: 3, rows: 3 };
-  }
-
-  // For medium screens (6-8 inch phones/tablets)
-  if (screenSize === "md") {
+  },
+  lg: (count) => {
     if (count === 1) return { cols: 1, rows: 1 };
     if (count === 2) return { cols: 2, rows: 1 };
     if (count <= 4) return { cols: 2, rows: 2 };
     if (count <= 6) return { cols: 3, rows: 2 };
-    return { cols: 3, rows: 3 };
+    return { cols: 4, rows: 2 };
   }
+};
 
-  // For large screens (tablets and desktops)
-  if (count === 1) return { cols: 1, rows: 1 };
-  if (count === 2) return { cols: 2, rows: 1 };
-  if (count <= 4) return { cols: 2, rows: 2 };
-  if (count <= 6) return { cols: 3, rows: 2 };
-  return { cols: 4, rows: 2 };
+export function calculateGridLayout(count: number, screenSize: string) {
+  const configKey = 
+    screenSize === "xxs" ? "xxs" :
+    (screenSize === "xs" || screenSize === "sm") ? "xs" :
+    (screenSize === "foldable" || screenSize === "md") ? "md" :
+    "lg";
+    
+  return LAYOUT_CONFIGS[configKey](count);
 }
 
 export function calculateTileSize(count: number, screenSize: string): "small" | "medium" | "large" {
