@@ -342,27 +342,7 @@ export function RoomPage() {
     [videoQuality],
   );
 
-  // Handle device change from settings panel
-  const handleDeviceChange = useCallback(
-    async (type: "audio" | "video", deviceId: string) => {
-      try {
-        if (type === "audio") {
-          await handleAudioDeviceChange(deviceId);
-        } else if (type === "video") {
-          await handleVideoDeviceChange(deviceId);
-        }
-      } catch (error) {
-        console.error("Error changing device:", error);
-        setMediaError(
-          `Erreur lors du changement de ${type === "audio" ? "microphone" : "caméra"}`,
-        );
-        setTimeout(() => setMediaError(null), 3000);
-      }
-    },
-    [audioEnabled, videoEnabled, facingMode],
-  );
-
-  const handleAudioDeviceChange = async (deviceId: string) => {
+  const handleAudioDeviceChange = useCallback(async (deviceId: string) => {
     setCurrentAudioDevice(deviceId);
     // Get new audio stream with selected device
     const newStream = await navigator.mediaDevices.getUserMedia({
@@ -389,9 +369,9 @@ export function RoomPage() {
       p2pManager.current?.updateLocalStream(localStreamRef.current);
       setLocalStream(localStreamRef.current);
     }
-  };
+  }, [audioEnabled]);
 
-  const handleVideoDeviceChange = async (deviceId: string) => {
+  const handleVideoDeviceChange = useCallback(async (deviceId: string) => {
     setCurrentVideoDevice(deviceId);
     // Get new video stream with selected device using optimal constraints
     const videoConstraints = getOptimalVideoConstraints(
@@ -420,7 +400,27 @@ export function RoomPage() {
       p2pManager.current?.updateLocalStream(localStreamRef.current);
       setLocalStream(localStreamRef.current);
     }
-  };
+  }, [videoEnabled, facingMode]);
+
+  // Handle device change from settings panel
+  const handleDeviceChange = useCallback(
+    async (type: "audio" | "video", deviceId: string) => {
+      try {
+        if (type === "audio") {
+          await handleAudioDeviceChange(deviceId);
+        } else if (type === "video") {
+          await handleVideoDeviceChange(deviceId);
+        }
+      } catch (error) {
+        console.error("Error changing device:", error);
+        setMediaError(
+          `Erreur lors du changement de ${type === "audio" ? "microphone" : "caméra"}`,
+        );
+        setTimeout(() => setMediaError(null), 3000);
+      }
+    },
+    [handleAudioDeviceChange, handleVideoDeviceChange],
+  );
 
   // Handle video quality change from settings panel
   const handleVideoQualityChange = useCallback(
@@ -1058,6 +1058,91 @@ export function RoomPage() {
     }
   }, [facingMode, videoEnabled]);
 
+  const stopScreenShare = useCallback(() => {
+    console.log("[stopScreenShare] 🛑 Stopping screen share...");
+
+    setScreenStream((prev) => {
+      if (prev) {
+        prev.getTracks().forEach((track) => {
+          console.log("[stopScreenShare] Stopping track", {
+            kind: track.kind,
+            label: track.label,
+          });
+          track.stop();
+        });
+      }
+      return null;
+    });
+
+    // Restore camera stream
+    const stream = localStreamRef.current;
+    if (stream) {
+      console.log("[stopScreenShare] 📹 Restoring camera stream", {
+        videoTracks: stream.getVideoTracks().length,
+        audioTracks: stream.getAudioTracks().length,
+      });
+
+      // If camera was enabled before, we need to get a fresh video track
+      // because the old one might have been replaced
+      if (videoEnabled) {
+        const cameraConstraints = getOptimalVideoConstraints(facingMode, false);
+        navigator.mediaDevices
+          .getUserMedia({
+            video: cameraConstraints,
+          })
+          .then((freshStream) => {
+            const freshVideoTrack = freshStream.getVideoTracks()[0];
+            if (freshVideoTrack && stream) {
+              // Remove old video track if any
+              const oldVideoTrack = stream.getVideoTracks()[0];
+              if (oldVideoTrack) {
+                stream.removeTrack(oldVideoTrack);
+                if (oldVideoTrack.readyState === "live") {
+                  oldVideoTrack.stop();
+                }
+              }
+              // Add fresh video track
+              stream.addTrack(freshVideoTrack);
+
+              // Update P2P manager
+              p2pManager.current?.updateLocalStream(stream);
+
+              // Update local stream state to trigger re-render
+              const newStreamRef = new MediaStream(stream.getTracks());
+              localStreamRef.current = newStreamRef;
+              setLocalStream(newStreamRef);
+
+              console.log(
+                "[stopScreenShare] ✅ Camera restored with fresh track",
+              );
+            }
+          })
+          .catch((err) => {
+            console.error("[stopScreenShare] Error getting fresh camera:", err);
+            // Fallback: just update with existing stream
+            p2pManager.current?.updateLocalStream(stream);
+          });
+      } else {
+        // Camera was off, just restore the stream without video
+        p2pManager.current?.updateLocalStream(stream);
+      }
+
+      // Notify peers that screen sharing stopped
+      p2pManager.current?.broadcast({
+        type: "media-state",
+        data: {
+          audioEnabled,
+          videoEnabled,
+          screenSharing: false,
+        },
+        senderId: myId,
+        timestamp: Date.now(),
+      } as P2PMessage);
+    }
+
+    console.log("[stopScreenShare] ✅ Screen share stopped");
+  }, [myId, audioEnabled, videoEnabled, facingMode]);
+
   // Screen share - memoized
   // CRITICAL FIX: Properly handle screen sharing by:
   // 1. Creating a combined stream with screen video + local audio
@@ -1162,92 +1247,7 @@ export function RoomPage() {
       }
       setTimeout(() => setMediaError(null), 3000);
     }
-  }, [myId, audioEnabled]);
-
-  const stopScreenShare = useCallback(() => {
-    console.log("[stopScreenShare] 🛑 Stopping screen share...");
-
-    setScreenStream((prev) => {
-      if (prev) {
-        prev.getTracks().forEach((track) => {
-          console.log("[stopScreenShare] Stopping track", {
-            kind: track.kind,
-            label: track.label,
-          });
-          track.stop();
-        });
-      }
-      return null;
-    });
-
-    // Restore camera stream
-    const stream = localStreamRef.current;
-    if (stream) {
-      console.log("[stopScreenShare] 📹 Restoring camera stream", {
-        videoTracks: stream.getVideoTracks().length,
-        audioTracks: stream.getAudioTracks().length,
-      });
-
-      // If camera was enabled before, we need to get a fresh video track
-      // because the old one might have been replaced
-      if (videoEnabled) {
-        const cameraConstraints = getOptimalVideoConstraints(facingMode, false);
-        navigator.mediaDevices
-          .getUserMedia({
-            video: cameraConstraints,
-          })
-          .then((freshStream) => {
-            const freshVideoTrack = freshStream.getVideoTracks()[0];
-            if (freshVideoTrack && stream) {
-              // Remove old video track if any
-              const oldVideoTrack = stream.getVideoTracks()[0];
-              if (oldVideoTrack) {
-                stream.removeTrack(oldVideoTrack);
-                if (oldVideoTrack.readyState === "live") {
-                  oldVideoTrack.stop();
-                }
-              }
-              // Add fresh video track
-              stream.addTrack(freshVideoTrack);
-
-              // Update P2P manager
-              p2pManager.current?.updateLocalStream(stream);
-
-              // Update local stream state to trigger re-render
-              const newStreamRef = new MediaStream(stream.getTracks());
-              localStreamRef.current = newStreamRef;
-              setLocalStream(newStreamRef);
-
-              console.log(
-                "[stopScreenShare] ✅ Camera restored with fresh track",
-              );
-            }
-          })
-          .catch((err) => {
-            console.error("[stopScreenShare] Error getting fresh camera:", err);
-            // Fallback: just update with existing stream
-            p2pManager.current?.updateLocalStream(stream);
-          });
-      } else {
-        // Camera was off, just restore the stream without video
-        p2pManager.current?.updateLocalStream(stream);
-      }
-
-      // Notify peers that screen sharing stopped
-      p2pManager.current?.broadcast({
-        type: "media-state",
-        data: {
-          audioEnabled,
-          videoEnabled,
-          screenSharing: false,
-        },
-        senderId: myId,
-        timestamp: Date.now(),
-      } as P2PMessage);
-    }
-
-    console.log("[stopScreenShare] ✅ Screen share stopped");
-  }, [myId, audioEnabled, videoEnabled, facingMode]);
+  }, [myId, audioEnabled, stopScreenShare]);
 
   // Chat - memoized
   const sendChatMessage = useCallback(
@@ -1338,7 +1338,7 @@ export function RoomPage() {
       } catch (err) {
         console.error("Failed to copy:", err);
       }
-      document.body.removeChild(textArea);
+      textArea.remove();
     }
   }, []);
 

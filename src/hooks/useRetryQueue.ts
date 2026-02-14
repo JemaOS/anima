@@ -119,7 +119,7 @@ export function useRetryQueue<T>(
       const results = await processBatch(batch);
 
       // Check if we should stop on error
-      if (stopOnError && results.some(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value?.success))) {
+      if (stopOnError && results.some(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success))) {
         break;
       }
     }

@@ -27,6 +27,7 @@ describe("Icon Component", () => {
     );
 
     const svg = container.querySelector("svg");
+    expect(svg).toBeInTheDocument();
     expect(svg).toHaveAttribute("width", "48");
     expect(svg).toHaveAttribute("height", "48");
   });

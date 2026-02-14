@@ -34,7 +34,7 @@ function onWindowLoad() {
 
   // Écouter les messages du service worker
   navigator.serviceWorker.addEventListener('message', function(event) {
-    if (event.data && event.data.type === 'SW_UPDATE') {
+    if (event.data?.type === 'SW_UPDATE') {
       console.log('[SW] Message reçu:', event.data);
     }
   });

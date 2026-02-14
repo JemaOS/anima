@@ -296,7 +296,7 @@ export const getCameraLabel = (device: MediaDeviceInfo): string => {
   // Usually camera 0 is back, camera 1 is front on Android
   const cameraMatch = label.match(/camera\s*(\d+)/i);
   if (cameraMatch) {
-    const cameraNum = parseInt(cameraMatch[1], 10);
+    const cameraNum = Number.parseInt(cameraMatch[1], 10);
     if (cameraNum === 0) return "Caméra arrière";
     if (cameraNum === 1) return "Caméra avant";
   }

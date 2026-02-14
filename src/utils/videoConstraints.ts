@@ -103,7 +103,14 @@ export const getDeviceType = (): "mobile" | "tablet" | "desktop" => {
       window.innerWidth < 1024 &&
       "ontouchstart" in window);
 
-  const result = isTablet ? "tablet" : isMobile ? "mobile" : "desktop";
+  let result: "mobile" | "tablet" | "desktop";
+  if (isTablet) {
+    result = "tablet";
+  } else if (isMobile) {
+    result = "mobile";
+  } else {
+    result = "desktop";
+  }
 
   // Mettre en cache
   cachedDeviceType = result;
@@ -187,7 +194,7 @@ export const getOptimalAudioConstraints = (): MediaTrackConstraints => {
     sampleRate: 48000,
     sampleSize: 16,
     // Latency optimization for real-time communication
-    // @ts-ignore - latency is supported in some browsers
+    // @ts-expect-error - latency is supported in some browsers
     latency: 0.01,
   };
 

@@ -283,4 +283,4 @@ export const VideoGrid = memo(function VideoGrid({
 });
 
 // Export nommé pour la rétrocompatibilité
-export { VideoGrid as default };
+export default VideoGrid;

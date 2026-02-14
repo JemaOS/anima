@@ -5,14 +5,14 @@ import Peer, { DataConnection, MediaConnection } from "peerjs";
 import { retry, RetryPresets } from "@/utils/retry";
 
 export interface PeerInfo {
-  id: string;
-  name: string;
-  isHost: boolean;
-  joinedAt: number;
+  readonly id: string;
+  readonly name: string;
+  readonly isHost: boolean;
+  readonly joinedAt: number;
 }
 
 export interface P2PMessage {
-  type:
+  readonly type:
     | "peer-list"
     | "peer-joined"
     | "peer-left"
@@ -26,9 +26,9 @@ export interface P2PMessage {
     | "ice-candidate"
     | "ping"
     | "pong";
-  data: any;
-  senderId: string;
-  timestamp: number;
+  readonly data: any;
+  readonly senderId: string;
+  readonly timestamp: number;
 }
 
 // Connection state enum for proper state tracking
@@ -59,12 +59,12 @@ export type VideoQuality = "low" | "medium" | "high" | "ultra";
 
 // Connection statistics interface
 export interface ConnectionStats {
-  packetsLost: number;
-  jitter: number;
-  roundTripTime: number;
-  bytesReceived: number;
-  framesPerSecond?: number;
-  quality: ConnectionQuality;
+  readonly packetsLost: number;
+  readonly jitter: number;
+  readonly roundTripTime: number;
+  readonly bytesReceived: number;
+  readonly framesPerSecond?: number;
+  readonly quality: ConnectionQuality;
 }
 
 // Maximum participants allowed in a room (P2P mesh limitation)
@@ -2599,7 +2599,9 @@ export class P2PManager {
               lastBytesReceived = bytesReceived;
             }
           });
-        } catch (e) {}
+        } catch (e) {
+          // Ignore error
+        }
 
         if (videoReceiver.track.muted && lastBytesReceived === 0 && !renegotiationAttempted) {
           renegotiationAttempted = true;
@@ -3255,36 +3257,42 @@ export class P2PManager {
 
     try {
       const stats = await pc.getStats();
-      const result: ConnectionStats = {
-        packetsLost: 0,
-        jitter: 0,
-        roundTripTime: 0,
-        bytesReceived: 0,
-        quality: "good",
-      };
+      let packetsLost = 0;
+      let jitter = 0;
+      let roundTripTime = 0;
+      let bytesReceived = 0;
+      let framesPerSecond: number | undefined;
+      let quality: ConnectionQuality = "good";
 
       stats.forEach((report: any) => {
         if (report.type === "inbound-rtp" && report.kind === "video") {
-          result.packetsLost = report.packetsLost || 0;
-          result.jitter = report.jitter || 0;
-          result.bytesReceived = report.bytesReceived || 0;
-          result.framesPerSecond = report.framesPerSecond;
+          packetsLost = report.packetsLost || 0;
+          jitter = report.jitter || 0;
+          bytesReceived = report.bytesReceived || 0;
+          framesPerSecond = report.framesPerSecond;
         }
         if (report.type === "candidate-pair" && report.state === "succeeded") {
-          result.roundTripTime = (report.currentRoundTripTime || 0) * 1000;
+          roundTripTime = (report.currentRoundTripTime || 0) * 1000;
         }
       });
 
       // Determine quality based on metrics
-      if (result.packetsLost > 50 || result.roundTripTime > 300) {
-        result.quality = "poor";
-      } else if (result.packetsLost > 20 || result.roundTripTime > 150) {
-        result.quality = "medium";
+      if (packetsLost > 50 || roundTripTime > 300) {
+        quality = "poor";
+      } else if (packetsLost > 20 || roundTripTime > 150) {
+        quality = "medium";
       } else {
-        result.quality = "good";
+        quality = "good";
       }
 
-      return result;
+      return {
+        packetsLost,
+        jitter,
+        roundTripTime,
+        bytesReceived,
+        framesPerSecond,
+        quality,
+      };
     } catch (_error) {
       return null;
     }
@@ -3477,9 +3485,9 @@ export class P2PManager {
 
           const preferredCodecs = [...vp9, ...vp8, ...h264, ...others];
 
-          // if (preferredCodecs.length > 0 && transceiver.setCodecPreferences) {
-          //   transceiver.setCodecPreferences(preferredCodecs);
-          // }
+          if (preferredCodecs.length > 0 && (transceiver as any).setCodecPreferences) {
+            (transceiver as any).setCodecPreferences(preferredCodecs);
+          }
         }
       }
     } catch (_error) {

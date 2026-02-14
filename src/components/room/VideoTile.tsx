@@ -461,7 +461,11 @@ export const VideoTile = memo(function VideoTile({
           <Avatar
             name={participant.name}
             id={participant.id}
-            size={size === "small" ? "sm" : size === "medium" ? "md" : "xl"}
+            size={(() => {
+              if (size === "small") return "sm";
+              if (size === "medium") return "md";
+              return "xl";
+            })()}
           />
         </div>
       )}
@@ -547,4 +551,4 @@ export const VideoTile = memo(function VideoTile({
 });
 
 // Export nommé pour la rétrocompatibilité
-export { VideoTile as default };
+export default VideoTile;

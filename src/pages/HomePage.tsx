@@ -107,7 +107,9 @@ export function HomePage() {
                   value={roomCode}
                   onChange={handleCodeChange}
                   placeholder="Code de réunion"
-                  onKeyDown={(e) => e.key === "Enter" && handleJoinRoom()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handleJoinRoom();
+                  }}
                   className="w-full h-11 px-4 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder:text-gray-600 focus:outline-none focus:border-[#8f88ed]/40 transition-colors duration-200 text-sm"
                 />
                 {error && (

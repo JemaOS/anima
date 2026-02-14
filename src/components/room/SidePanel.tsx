@@ -49,6 +49,44 @@ export function SidePanel({
   currentVideoQuality,
   currentVideoStyle,
 }: SidePanelProps) {
+  const getTitle = () => {
+    switch (type) {
+      case "chat":
+        return "Discussion";
+      case "participants":
+        return "Participants";
+      case "settings":
+        return "Paramètres";
+    }
+  };
+
+  const renderContent = () => {
+    switch (type) {
+      case "chat":
+        return <ChatPanel messages={messages} onSendMessage={onSendMessage} />;
+      case "participants":
+        return (
+          <ParticipantsPanel
+            participants={participants}
+            localParticipant={localParticipant}
+          />
+        );
+      case "settings":
+        return (
+          <SettingsPanel
+            isOpen={isOpen}
+            onDeviceChange={onDeviceChange}
+            onVideoQualityChange={onVideoQualityChange}
+            onVideoStyleChange={onVideoStyleChange}
+            currentAudioDevice={currentAudioDevice}
+            currentVideoDevice={currentVideoDevice}
+            currentVideoQuality={currentVideoQuality}
+            currentVideoStyle={currentVideoStyle}
+          />
+        );
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -67,11 +105,7 @@ export function SidePanel({
       {/* Header */}
       <div className="h-14 px-5 flex items-center justify-between border-b border-neutral-700">
         <h2 className="text-lg font-medium text-white">
-          {type === "chat"
-            ? "Discussion"
-            : type === "participants"
-              ? "Participants"
-              : "Paramètres"}
+          {getTitle()}
         </h2>
         <button
           onClick={onClose}
@@ -83,25 +117,7 @@ export function SidePanel({
 
       {/* Contenu */}
       <div className="flex-1 overflow-hidden">
-        {type === "chat" ? (
-          <ChatPanel messages={messages} onSendMessage={onSendMessage} />
-        ) : type === "participants" ? (
-          <ParticipantsPanel
-            participants={participants}
-            localParticipant={localParticipant}
-          />
-        ) : (
-          <SettingsPanel
-            isOpen={isOpen}
-            onDeviceChange={onDeviceChange}
-            onVideoQualityChange={onVideoQualityChange}
-            onVideoStyleChange={onVideoStyleChange}
-            currentAudioDevice={currentAudioDevice}
-            currentVideoDevice={currentVideoDevice}
-            currentVideoQuality={currentVideoQuality}
-            currentVideoStyle={currentVideoStyle}
-          />
-        )}
+        {renderContent()}
       </div>
     </div>
   );

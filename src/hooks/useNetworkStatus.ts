@@ -3,6 +3,13 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+const getNavigatorConnection = () => {
+  if (typeof navigator === 'undefined') return null;
+  return (navigator as any).connection ||
+         (navigator as any).mozConnection ||
+         (navigator as any).webkitConnection;
+};
+
 export type NetworkState = 'online' | 'offline' | 'unknown';
 export type ConnectionType = 'wifi' | 'cellular' | 'ethernet' | 'unknown';
 
@@ -78,9 +85,7 @@ export function useNetworkStatus(options: UseNetworkStatusOptions = {}): Network
    * Get connection info from Network Information API
    */
   const getConnectionInfo = useCallback(() => {
-    const connection = (navigator as any).connection ||
-                      (navigator as any).mozConnection ||
-                      (navigator as any).webkitConnection;
+    const connection = getNavigatorConnection();
 
     if (!connection) {
       return {
@@ -193,9 +198,7 @@ export function useNetworkStatus(options: UseNetworkStatusOptions = {}): Network
 
   // Listen for connection change events (Network Information API)
   useEffect(() => {
-    const connection = (navigator as any).connection ||
-                      (navigator as any).mozConnection ||
-                      (navigator as any).webkitConnection;
+    const connection = getNavigatorConnection();
 
     if (connection) {
       const handleChange = () => {
@@ -259,9 +262,7 @@ export function useConnectionQuality(): {
   });
 
   useEffect(() => {
-    const connection = (navigator as any).connection ||
-                      (navigator as any).mozConnection ||
-                      (navigator as any).webkitConnection;
+    const connection = getNavigatorConnection();
 
     if (!connection) {
       return;

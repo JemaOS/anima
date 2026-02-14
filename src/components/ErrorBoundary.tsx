@@ -24,6 +24,36 @@ interface State {
   errorCount: number;
 }
 
+abstract class BaseErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = {
+      hasError: false,
+      errorCount: 0
+    };
+  }
+
+  static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error };
+  }
+
+  handleReset = () => {
+    this.setState({
+      hasError: false,
+      error: undefined,
+      errorInfo: undefined
+    });
+    this.props.onReset?.();
+  };
+
+  protected updateErrorState(errorInfo: ErrorInfo) {
+    this.setState(prevState => ({
+      errorInfo,
+      errorCount: prevState.errorCount + 1
+    }));
+  }
+}
+
 /**
  * Enhanced Error Boundary component for catching React errors gracefully.
  * 
@@ -35,27 +65,11 @@ interface State {
  * - Provides error reset functionality
  * - Logs errors for debugging
  */
-export class ErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { 
-      hasError: false,
-      errorCount: 0 
-    };
-  }
-
-  static getDerivedStateFromError(error: Error): Partial<State> {
-    return { hasError: true, error };
-  }
-
+export class ErrorBoundary extends BaseErrorBoundary {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     const { componentName, onError } = this.props;
     
-    // Update state with error info
-    this.setState(prevState => ({
-      errorInfo,
-      errorCount: prevState.errorCount + 1
-    }));
+    this.updateErrorState(errorInfo);
 
     // Log error with component context
     const context = componentName ? `[${componentName}] ` : '';
@@ -75,21 +89,6 @@ export class ErrorBoundary extends Component<Props, State> {
       });
     }
   }
-
-  /**
-   * Reset the error boundary state
-   */
-  handleReset = () => {
-    const { onReset } = this.props;
-    
-    this.setState({ 
-      hasError: false, 
-      error: undefined, 
-      errorInfo: undefined 
-    });
-    
-    onReset?.();
-  };
 
   /**
    * Reload the page as a last resort
@@ -200,37 +199,13 @@ export function withErrorBoundary<P extends object>(
  * Specialized Error Boundary for the Room component
  * Handles video call specific errors
  */
-export class RoomErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { 
-      hasError: false,
-      errorCount: 0 
-    };
-  }
-
-  static getDerivedStateFromError(error: Error): Partial<State> {
-    return { hasError: true, error };
-  }
-
+export class RoomErrorBoundary extends BaseErrorBoundary {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    this.setState(prevState => ({
-      errorInfo,
-      errorCount: prevState.errorCount + 1
-    }));
+    this.updateErrorState(errorInfo);
 
     console.error("[RoomErrorBoundary] Error in room:", error);
     console.error("[RoomErrorBoundary] Component stack:", errorInfo.componentStack);
   }
-
-  handleReset = () => {
-    this.setState({ 
-      hasError: false, 
-      error: undefined, 
-      errorInfo: undefined 
-    });
-    this.props.onReset?.();
-  };
 
   handleLeaveRoom = () => {
     window.location.href = '/';
@@ -289,36 +264,12 @@ export class RoomErrorBoundary extends Component<Props, State> {
  * Specialized Error Boundary for Video components
  * Handles video stream specific errors
  */
-export class VideoErrorBoundary extends Component<Props, State> {
-  constructor(props: Props) {
-    super(props);
-    this.state = { 
-      hasError: false,
-      errorCount: 0 
-    };
-  }
-
-  static getDerivedStateFromError(error: Error): Partial<State> {
-    return { hasError: true, error };
-  }
-
+export class VideoErrorBoundary extends BaseErrorBoundary {
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    this.setState(prevState => ({
-      errorInfo,
-      errorCount: prevState.errorCount + 1
-    }));
+    this.updateErrorState(errorInfo);
 
     console.error("[VideoErrorBoundary] Video error:", error);
   }
-
-  handleReset = () => {
-    this.setState({ 
-      hasError: false, 
-      error: undefined, 
-      errorInfo: undefined 
-    });
-    this.props.onReset?.();
-  };
 
   render() {
     const { hasError } = this.state;

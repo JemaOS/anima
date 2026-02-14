@@ -35,4 +35,4 @@ async function generateIcons() {
   }
 }
 
-generateIcons();
+generateIcons().catch(console.error);

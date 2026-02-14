@@ -685,56 +685,65 @@ const JoinForm = ({
   onUserNameChange: (name: string) => void;
   onJoin: () => void;
   onCopyCode: () => void;
-}) => (
-  <div className="w-full max-w-sm">
-    <h1 className="text-2xl font-medium text-white mb-2">
-      {isHost ? "Creer une reunion" : "Rejoindre la reunion"}
-    </h1>
-    <p className="text-neutral-400 mb-6">
-      Code: <span className="font-mono text-white">{code}</span>
-    </p>
+}) => {
+  const getButtonText = () => {
+    if (isJoining) return "Connexion...";
+    if (isHost) return "Démarrer";
+    return "Rejoindre maintenant";
+  };
 
-    <div className="space-y-4">
-      <div>
-        <label className="block text-sm text-neutral-400 mb-2">Votre nom</label>
-        <input
-          type="text"
-          value={userName}
-          onChange={(e) => onUserNameChange(e.target.value)}
-          placeholder="Entrez votre nom"
-          className="w-full h-12 px-4 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder:text-gray-400 focus:outline-none focus:border-primary-500"
-          onKeyDown={(e) => e.key === "Enter" && onJoin()}
-        />
-      </div>
+  return (
+    <div className="w-full max-w-sm">
+      <h1 className="text-2xl font-medium text-white mb-2">
+        {isHost ? "Creer une reunion" : "Rejoindre la reunion"}
+      </h1>
+      <p className="text-neutral-400 mb-6">
+        Code: <span className="font-mono text-white">{code}</span>
+      </p>
 
-      <Button
-        onClick={onJoin}
-        disabled={!userName.trim() || isJoining}
-        className="w-full"
-        size="lg"
-      >
-        {isJoining ? "Connexion..." : isHost ? "Démarrer" : "Rejoindre maintenant"}
-      </Button>
-
-      {isAndroid() && !permissionsGranted && !error && (
-        <p className="text-xs text-warning-400 text-center mt-2">
-          ⚠️ Assurez-vous d'autoriser l'accès à la caméra et au microphone
-        </p>
-      )}
-
-      {isHost && (
-        <div className="mt-6 p-4 bg-neutral-800 rounded-lg">
-          <p className="text-sm text-neutral-400 mb-2">Partagez ce code avec les participants:</p>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 px-3 py-2 bg-neutral-900 rounded font-mono text-white">
-              {code}
-            </code>
-            <Button onClick={onCopyCode} variant="secondary" size="sm">
-              <Icon name={copied ? "check" : "copy"} size={18} />
-            </Button>
-          </div>
+      <div className="space-y-4">
+        <div>
+          <label htmlFor="userName" className="block text-sm text-neutral-400 mb-2">Votre nom</label>
+          <input
+            id="userName"
+            type="text"
+            value={userName}
+            onChange={(e) => onUserNameChange(e.target.value)}
+            placeholder="Entrez votre nom"
+            className="w-full h-12 px-4 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder:text-gray-400 focus:outline-none focus:border-primary-500"
+            onKeyDown={(e) => e.key === "Enter" && onJoin()}
+          />
         </div>
-      )}
+
+        <Button
+          onClick={onJoin}
+          disabled={!userName.trim() || isJoining}
+          className="w-full"
+          size="lg"
+        >
+          {getButtonText()}
+        </Button>
+
+        {isAndroid() && !permissionsGranted && !error && (
+          <p className="text-xs text-warning-400 text-center mt-2">
+            ⚠️ Assurez-vous d'autoriser l'accès à la caméra et au microphone
+          </p>
+        )}
+
+        {isHost && (
+          <div className="mt-6 p-4 bg-neutral-800 rounded-lg">
+            <p className="text-sm text-neutral-400 mb-2">Partagez ce code avec les participants:</p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 px-3 py-2 bg-neutral-900 rounded font-mono text-white">
+                {code}
+              </code>
+              <Button onClick={onCopyCode} variant="secondary" size="sm">
+                <Icon name={copied ? "check" : "copy"} size={18} />
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
-  </div>
-);
+  );
+};

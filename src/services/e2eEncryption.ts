@@ -20,14 +20,14 @@ import {
 
 // Types
 export interface KeyPair {
-  publicKey: Uint8Array;
-  secretKey: Uint8Array;
+  readonly publicKey: Uint8Array;
+  readonly secretKey: Uint8Array;
 }
 
 export interface EncryptedMessage {
-  ciphertext: string; // Base64 encoded
-  nonce: string; // Base64 encoded
-  senderPublicKey: string; // Base64 encoded
+  readonly ciphertext: string; // Base64 encoded
+  readonly nonce: string; // Base64 encoded
+  readonly senderPublicKey: string; // Base64 encoded
 }
 
 export interface SessionKeys {
@@ -39,9 +39,9 @@ export interface SessionKeys {
 }
 
 export interface EncryptedFrame {
-  data: Uint8Array;
-  nonce: Uint8Array;
-  keyId: string;
+  readonly data: Uint8Array;
+  readonly nonce: Uint8Array;
+  readonly keyId: string;
 }
 
 // Constants

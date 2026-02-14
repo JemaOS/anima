@@ -157,7 +157,7 @@ export function SettingsPanel({
       } catch (err) {
         console.error("Failed to copy:", err);
       }
-      document.body.removeChild(textArea);
+      textArea.remove();
     }
   };
 

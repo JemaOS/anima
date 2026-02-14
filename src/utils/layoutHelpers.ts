@@ -30,13 +30,15 @@ const LAYOUT_CONFIGS: Record<string, (count: number) => Layout> = {
   }
 };
 
+function getLayoutConfigKey(screenSize: string) {
+  if (screenSize === "xxs") return "xxs";
+  if (screenSize === "xs" || screenSize === "sm") return "xs";
+  if (screenSize === "foldable" || screenSize === "md") return "md";
+  return "lg";
+}
+
 export function calculateGridLayout(count: number, screenSize: string) {
-  const configKey = 
-    screenSize === "xxs" ? "xxs" :
-    (screenSize === "xs" || screenSize === "sm") ? "xs" :
-    (screenSize === "foldable" || screenSize === "md") ? "md" :
-    "lg";
-    
+  const configKey = getLayoutConfigKey(screenSize);
   return LAYOUT_CONFIGS[configKey](count);
 }
 
@@ -51,14 +53,24 @@ export function calculateTileSize(count: number, screenSize: string): "small" | 
   return "small";
 }
 
+function getGap(screenSize: string) {
+  if (screenSize === "xxs") return "4px";
+  if (screenSize === "xs") return "6px";
+  if (screenSize === "sm") return "8px";
+  return "12px";
+}
+
+function getPadding(screenSize: string) {
+  if (screenSize === "xxs") return "4px";
+  if (screenSize === "xs") return "6px";
+  return "8px";
+}
+
 export function calculateGridStyle(layout: { cols: number, rows: number }, count: number, screenSize: string) {
   const { cols } = layout;
   const actualRows = Math.ceil(count / cols);
 
-  const gap =
-    screenSize === "xxs" ? "4px" :
-    screenSize === "xs" ? "6px" :
-    screenSize === "sm" ? "8px" : "12px";
+  const gap = getGap(screenSize);
 
   return {
     display: "grid" as const,
@@ -67,6 +79,6 @@ export function calculateGridStyle(layout: { cols: number, rows: number }, count
     gap,
     height: "100%",
     width: "100%",
-    padding: screenSize === "xxs" ? "4px" : screenSize === "xs" ? "6px" : "8px",
+    padding: getPadding(screenSize),
   };
 }

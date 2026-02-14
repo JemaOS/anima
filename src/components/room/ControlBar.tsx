@@ -72,9 +72,9 @@ const ReactionsButton = memo(function ReactionsButton({
                 {emoji.includes("-")
                   ? emoji
                       .split("-")
-                      .map((code) => String.fromCodePoint(parseInt(code, 16)))
+                      .map((code) => String.fromCodePoint(Number.parseInt(code, 16)))
                       .join("")
-                  : String.fromCodePoint(parseInt(emoji, 16))}
+                  : String.fromCodePoint(Number.parseInt(emoji, 16))}
               </button>
             )
           )}
@@ -314,4 +314,4 @@ export const ControlBar = memo(function ControlBar({
 });
 
 // Export nommé pour la rétrocompatibilité
-export { ControlBar as default };
+export default ControlBar;
