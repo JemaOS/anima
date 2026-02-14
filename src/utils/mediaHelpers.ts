@@ -17,6 +17,135 @@ export const isMobileDevice = () => {
   );
 };
 
+function getMediaConstraints(
+  videoQuality: VideoQualityLevel,
+  facingMode: "user" | "environment",
+  audioDeviceId?: string,
+  videoDeviceId?: string,
+) {
+  const audioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
+  if (audioDeviceId) {
+    audioConstraints.deviceId = { exact: audioDeviceId };
+  }
+
+  const videoConstraints: MediaTrackConstraints = {
+    ...getOptimalVideoConstraints(facingMode, false, undefined, videoQuality),
+  };
+
+  if (videoDeviceId) {
+    videoConstraints.deviceId = { exact: videoDeviceId };
+    delete videoConstraints.facingMode;
+  }
+
+  return { audio: audioConstraints, video: videoConstraints };
+}
+
+async function attemptFallbackCapture(
+  audioOn: boolean,
+  videoOn: boolean,
+  audioDeviceId?: string,
+): Promise<{ stream: MediaStream | null; error: string | null }> {
+  try {
+    const fallbackAudioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
+    if (audioDeviceId) {
+      fallbackAudioConstraints.deviceId = { exact: audioDeviceId };
+    }
+    const fallbackStream = await navigator.mediaDevices.getUserMedia({
+      video: true,
+      audio: fallbackAudioConstraints,
+    });
+    fallbackStream
+      .getAudioTracks()
+      .forEach((track) => (track.enabled = audioOn));
+    fallbackStream
+      .getVideoTracks()
+      .forEach((track) => (track.enabled = videoOn));
+    return {
+      stream: fallbackStream,
+      error: "Caméra non disponible, essai avec la caméra par défaut...",
+    };
+  } catch {
+    return { stream: null, error: "Erreur d'accès à la caméra" };
+  }
+}
+
+function getErrorMessage(errorName: string, errorMessage?: string): string {
+  if (errorName === "NotFoundError") {
+    return "Aucune caméra ou microphone détecté";
+  }
+  if (errorName === "NotAllowedError") {
+    return "Permissions refusées. Veuillez autoriser l'accès à la caméra et au microphone.";
+  }
+  if (errorName === "NotReadableError") {
+    return "La caméra est utilisée par une autre application";
+  }
+  if (errorName === "AbortError") {
+    return "Erreur d'initialisation de la caméra";
+  }
+  if (errorMessage?.includes("timeout")) {
+    return "La caméra ne répond pas";
+  }
+  return "Erreur d'accès aux périphériques";
+}
+
+function getRetryStrategy(
+  errorName: string,
+  errorMessage?: string,
+): { shouldRetry: boolean; delay: number } {
+  if (errorName === "NotAllowedError" && isAndroid()) {
+    return { shouldRetry: true, delay: 1000 };
+  }
+  if (errorName === "NotReadableError") {
+    return { shouldRetry: true, delay: 1000 };
+  }
+  if (errorName === "AbortError" && isAndroid()) {
+    return { shouldRetry: true, delay: 800 };
+  }
+  if (errorMessage?.includes("timeout")) {
+    return { shouldRetry: true, delay: 1000 };
+  }
+  // Default Android retry for other errors
+  if (
+    isAndroid() &&
+    !["NotFoundError", "OverconstrainedError"].includes(errorName)
+  ) {
+    return { shouldRetry: true, delay: 800 };
+  }
+
+  return { shouldRetry: false, delay: 0 };
+}
+
+async function handleCaptureError(
+  error: any,
+  retryCount: number,
+  maxRetries: number,
+  retryCallback: () => Promise<{
+    stream: MediaStream | null;
+    error: string | null;
+  }>,
+  fallbackCallback: () => Promise<{
+    stream: MediaStream | null;
+    error: string | null;
+  }>,
+): Promise<{ stream: MediaStream | null; error: string | null }> {
+  console.error(`Media capture error (attempt ${retryCount + 1}):`, error);
+
+  if (error.name === "OverconstrainedError") {
+    return fallbackCallback();
+  }
+
+  if (retryCount < maxRetries) {
+    const { shouldRetry, delay } = getRetryStrategy(error.name, error.message);
+
+    if (shouldRetry) {
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      return retryCallback();
+    }
+  }
+
+  return { stream: null, error: getErrorMessage(error.name, error.message) };
+}
+
 export async function captureMediaStream(
   audioOn: boolean,
   videoOn: boolean,
@@ -29,42 +158,19 @@ export async function captureMediaStream(
   const maxRetries = isAndroid() ? 3 : 1;
 
   try {
-    // Use optimal audio constraints from utility
-    const audioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
+    const constraints = getMediaConstraints(
+      videoQuality,
+      facingMode,
+      audioDeviceId,
+      videoDeviceId,
+    );
 
-    if (audioDeviceId) {
-      audioConstraints.deviceId = { exact: audioDeviceId };
-    }
-
-    // Get video constraints with the specified facing mode and quality using utility
-    const videoConstraints: MediaTrackConstraints = {
-      ...getOptimalVideoConstraints(
-        facingMode,
-        false,
-        undefined,
-        videoQuality,
-      ),
-    };
-
-    // If a specific device is selected, use it instead of facingMode
-    if (videoDeviceId) {
-      videoConstraints.deviceId = { exact: videoDeviceId };
-      // Remove facingMode when using specific deviceId to avoid conflicts
-      delete videoConstraints.facingMode;
-    }
-
-    // On Android, add a small delay before requesting media to ensure
-    // previous streams are fully released
     if (isAndroid() && retryCount > 0) {
       await new Promise((resolve) => setTimeout(resolve, 500 * retryCount));
     }
 
-    // Add timeout to prevent hanging
     const stream = await withTimeoutRace(
-      navigator.mediaDevices.getUserMedia({
-        video: videoConstraints,
-        audio: audioConstraints,
-      }),
+      navigator.mediaDevices.getUserMedia(constraints),
       15000, // 15 second timeout
       "Media capture timeout",
     );
@@ -74,114 +180,22 @@ export async function captureMediaStream(
 
     return { stream, error: null };
   } catch (error: any) {
-    console.error(
-      `Media capture error (attempt ${retryCount + 1}):`,
+    return handleCaptureError(
       error,
+      retryCount,
+      maxRetries,
+      () =>
+        captureMediaStream(
+          audioOn,
+          videoOn,
+          videoQuality,
+          facingMode,
+          audioDeviceId,
+          videoDeviceId,
+          retryCount + 1,
+        ),
+      () => attemptFallbackCapture(audioOn, videoOn, audioDeviceId),
     );
-
-    if (error.name === "NotFoundError") {
-      return { stream: null, error: "Aucune caméra ou microphone détecté" };
-    } else if (error.name === "NotAllowedError") {
-      // On Android, permissions might need to be re-requested
-      if (isAndroid() && retryCount < maxRetries) {
-        // Wait and retry
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return captureMediaStream(
-          audioOn,
-          videoOn,
-          videoQuality,
-          facingMode,
-          audioDeviceId,
-          videoDeviceId,
-          retryCount + 1,
-        );
-      }
-      return {
-        stream: null,
-        error: "Permissions refusées. Veuillez autoriser l'accès à la caméra et au microphone.",
-      };
-    } else if (error.name === "NotReadableError") {
-      // Device is busy - common on Android when switching between pages
-      if (retryCount < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return captureMediaStream(
-          audioOn,
-          videoOn,
-          videoQuality,
-          facingMode,
-          audioDeviceId,
-          videoDeviceId,
-          retryCount + 1,
-        );
-      }
-      return { stream: null, error: "La caméra est utilisée par une autre application" };
-    } else if (error.name === "OverconstrainedError") {
-      // If facingMode constraint fails (e.g., no back camera), try without it
-      try {
-        const fallbackAudioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
-        if (audioDeviceId) {
-          fallbackAudioConstraints.deviceId = { exact: audioDeviceId };
-        }
-        const fallbackStream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: fallbackAudioConstraints,
-        });
-        fallbackStream
-          .getAudioTracks()
-          .forEach((track) => (track.enabled = audioOn));
-        fallbackStream
-          .getVideoTracks()
-          .forEach((track) => (track.enabled = videoOn));
-        return { stream: fallbackStream, error: "Caméra non disponible, essai avec la caméra par défaut..." };
-      } catch {
-        return { stream: null, error: "Erreur d'accès à la caméra" };
-      }
-    } else if (error.name === "AbortError") {
-      // Request was aborted - retry on Android
-      if (isAndroid() && retryCount < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return captureMediaStream(
-          audioOn,
-          videoOn,
-          videoQuality,
-          facingMode,
-          audioDeviceId,
-          videoDeviceId,
-          retryCount + 1,
-        );
-      }
-      return { stream: null, error: "Erreur d'initialisation de la caméra" };
-    } else if (error.message?.includes("timeout")) {
-      // Timeout error
-      if (retryCount < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        return captureMediaStream(
-          audioOn,
-          videoOn,
-          videoQuality,
-          facingMode,
-          audioDeviceId,
-          videoDeviceId,
-          retryCount + 1,
-        );
-      }
-      return { stream: null, error: "La caméra ne répond pas" };
-    } else {
-      // Generic error - retry on Android
-      if (isAndroid() && retryCount < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 800));
-        return captureMediaStream(
-          audioOn,
-          videoOn,
-          videoQuality,
-          facingMode,
-          audioDeviceId,
-          videoDeviceId,
-          retryCount + 1,
-        );
-      }
-      return { stream: null, error: "Erreur d'accès aux périphériques" };
-    }
   }
 }
 

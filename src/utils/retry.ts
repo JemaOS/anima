@@ -187,14 +187,72 @@ function defaultShouldRetry(error: Error): boolean {
   return false;
 }
 
+async function attemptOperation<T>(
+  fn: () => Promise<T>,
+  timeout: number,
+  signal?: AbortSignal
+): Promise<T> {
+  if (signal?.aborted) {
+    throw new Error('Retry aborted');
+  }
+
+  return timeout > 0
+    ? await withTimeout(fn, timeout, signal)
+    : await fn();
+}
+
+async function waitBeforeRetry(
+  attempt: number,
+  opts: {
+    initialDelay: number;
+    maxDelay: number;
+    backoffMultiplier: number;
+    jitter: number;
+    signal?: AbortSignal;
+    onRetry?: (error: Error, attempt: number, nextDelay: number) => void;
+  },
+  lastError: Error
+) {
+  const nextDelay = calculateDelay(
+    attempt,
+    opts.initialDelay,
+    opts.maxDelay,
+    opts.backoffMultiplier,
+    opts.jitter
+  );
+
+  opts.onRetry?.(lastError, attempt + 1, nextDelay);
+  await sleep(nextDelay, opts.signal);
+}
+
+async function checkAndDelayRetry(
+  attempt: number,
+  error: Error,
+  opts: Required<Omit<RetryOptions, 'signal' | 'shouldRetry' | 'onRetry'>> & {
+    signal?: AbortSignal;
+    shouldRetry: (error: Error, attempt: number) => boolean;
+    onRetry?: (error: Error, attempt: number, nextDelay: number) => void;
+  },
+) {
+  if (attempt >= opts.maxRetries) {
+    return;
+  }
+
+  if (!opts.shouldRetry(error, attempt)) {
+    throw error;
+  }
+
+  await waitBeforeRetry(attempt, opts, error);
+}
+
 /**
  * Retry a function with exponential backoff
- * 
+ *
  * @param fn - The function to retry
  * @param options - Retry configuration options
  * @returns The result of the function
  * @throws RetryError if all retries are exhausted
- * 
+ *
  * @example
  * ```typescript
  * const result = await retry(
@@ -205,54 +263,21 @@ function defaultShouldRetry(error: Error): boolean {
  */
 export async function retry<T>(
   fn: () => Promise<T>,
-  options: RetryOptions = {}
+  options: RetryOptions = {},
 ): Promise<T> {
   const startTime = Date.now();
   const opts = { ...DEFAULT_RETRY_OPTIONS, ...options };
   const shouldRetry = opts.shouldRetry || defaultShouldRetry;
+  const fullOpts = { ...opts, shouldRetry };
 
-  let lastError: Error = new Error('Unknown error');
+  let lastError: Error = new Error("Unknown error");
 
   for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
     try {
-      // Check if aborted before attempting
-      if (opts.signal?.aborted) {
-        throw new Error('Retry aborted');
-      }
-
-      // Execute function with timeout
-      const result = opts.timeout > 0
-        ? await withTimeout(fn, opts.timeout, opts.signal)
-        : await fn();
-
-      return result;
+      return await attemptOperation(fn, opts.timeout, opts.signal);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-
-      // Don't retry on the last attempt
-      if (attempt >= opts.maxRetries) {
-        break;
-      }
-
-      // Check if we should retry this error
-      if (!shouldRetry(lastError, attempt)) {
-        throw lastError;
-      }
-
-      // Calculate next delay
-      const nextDelay = calculateDelay(
-        attempt,
-        opts.initialDelay,
-        opts.maxDelay,
-        opts.backoffMultiplier,
-        opts.jitter
-      );
-
-      // Notify retry callback
-      opts.onRetry?.(lastError, attempt + 1, nextDelay);
-
-      // Wait before retrying
-      await sleep(nextDelay, opts.signal);
+      await checkAndDelayRetry(attempt, lastError, fullOpts);
     }
   }
 
@@ -262,7 +287,7 @@ export async function retry<T>(
     `Failed after ${opts.maxRetries + 1} attempts: ${lastError.message}`,
     opts.maxRetries + 1,
     lastError,
-    totalTime
+    totalTime,
   );
 }
 
