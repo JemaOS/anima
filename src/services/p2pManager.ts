@@ -1137,6 +1137,38 @@ export class P2PManager {
       return;
     }
 
+    this.logMediaCallInitiation(peerId, streamToUse);
+
+    // CRITICAL FIX: ALWAYS get a fresh video track before initiating a call
+    // This ensures the track is actively capturing and not in a stale state
+    await this.ensureFreshVideoTrack(streamToUse, peerId);
+
+    // Verify the video track is in good state
+    this.verifyTrackStates(streamToUse, peerId);
+
+    // CRITICAL DIAGNOSTIC: Log the stream we're about to send
+    this.logStreamDetails(streamToUse, peerId, "🚀 ABOUT TO CALL peer.call() with stream:");
+
+    const mediaConn = this.peer.call(peerId, streamToUse);
+
+    // CRITICAL: Verify the call was created
+    if (!mediaConn) {
+      log("MEDIA", "❌ peer.call() returned null/undefined!", { peerId });
+      return;
+    }
+
+    log("MEDIA", "✅ peer.call() returned MediaConnection", {
+      peerId,
+      mediaConnType: typeof mediaConn,
+      hasOpen: "open" in mediaConn,
+      hasMetadata: !!mediaConn.metadata,
+    });
+
+    this.monitorPeerConnectionState(mediaConn, peerId);
+    this.setupMediaConnectionHandlers(mediaConn, peerId);
+  }
+
+  private logMediaCallInitiation(peerId: string, streamToUse: MediaStream) {
     log("MEDIA", "📞 Initiating media call", {
       peerId,
       audioTracks: streamToUse.getAudioTracks().length,
@@ -1150,12 +1182,9 @@ export class P2PManager {
       audioReadyState: streamToUse.getAudioTracks().map((t) => t.readyState),
       videoReadyState: streamToUse.getVideoTracks().map((t) => t.readyState),
     });
+  }
 
-    // CRITICAL FIX: ALWAYS get a fresh video track before initiating a call
-    // This ensures the track is actively capturing and not in a stale state
-    let videoTrack = streamToUse.getVideoTracks()[0];
-    const audioTrack = streamToUse.getAudioTracks()[0];
-
+  private async ensureFreshVideoTrack(streamToUse: MediaStream, peerId: string): Promise<void> {
     // Always try to get a fresh video track for outgoing calls
     try {
       log("MEDIA", "🔄 Getting fresh video track for call...", { peerId });
@@ -1184,7 +1213,6 @@ export class P2PManager {
           oldTrack.stop();
         }
         streamToUse.addTrack(freshVideoTrack);
-        videoTrack = freshVideoTrack;
 
         // Update local stream reference
         this.localStream = streamToUse;
@@ -1192,60 +1220,11 @@ export class P2PManager {
         // CRITICAL FIX: If the fresh track is muted, wait for it to unmute
         // This happens on mobile when the camera needs time to "warm up"
         if (freshVideoTrack.muted) {
-          log("MEDIA", "⏳ Fresh video track is muted, waiting for unmute...", { peerId });
-
           // For mobile, also try to force-enable the track
           if (this.isMobileDevice()) {
             freshVideoTrack.enabled = true;
           }
-
-          await new Promise<void>((resolve) => {
-            let resolved = false;
-            let checkInterval: ReturnType<typeof setInterval> | null = null;
-
-            const onUnmute = () => {
-              if (!resolved) {
-                resolved = true;
-                if (checkInterval) clearInterval(checkInterval);
-                freshVideoTrack.removeEventListener("unmute", onUnmute);
-                log("MEDIA", "✅ Video track unmuted, proceeding with call", {
-                  peerId,
-                  muted: freshVideoTrack.muted,
-                });
-                resolve();
-              }
-            };
-
-            freshVideoTrack.addEventListener("unmute", onUnmute);
-
-            // Also check immediately in case it already unmuted
-            if (!freshVideoTrack.muted) {
-              onUnmute();
-              return;
-            }
-
-            // For mobile, periodically check if track becomes unmuted
-            checkInterval = setInterval(() => {
-              if (!freshVideoTrack.muted && !resolved) {
-                onUnmute();
-              }
-            }, 100);
-
-            // Timeout after 5 seconds (increased from 3 for mobile)
-            setTimeout(() => {
-              if (!resolved) {
-                resolved = true;
-                if (checkInterval) clearInterval(checkInterval);
-                freshVideoTrack.removeEventListener("unmute", onUnmute);
-                log("MEDIA", "⚠️ Timeout waiting for video track to unmute, proceeding anyway", {
-                  peerId,
-                  muted: freshVideoTrack.muted,
-                  readyState: freshVideoTrack.readyState,
-                });
-                resolve();
-              }
-            }, 5000);
-          });
+          await this.waitForTrackUnmute(freshVideoTrack, peerId, "call");
         }
       } else {
         log("MEDIA", "⚠️ Fresh video track is not live!", {
@@ -1262,6 +1241,11 @@ export class P2PManager {
         error: (err as Error).message,
       });
     }
+  }
+
+  private verifyTrackStates(streamToUse: MediaStream, peerId: string) {
+    const videoTrack = streamToUse.getVideoTracks()[0];
+    const audioTrack = streamToUse.getAudioTracks()[0];
 
     // Verify the video track is in good state
     if (videoTrack && videoTrack.readyState !== "live") {
@@ -1294,9 +1278,10 @@ export class P2PManager {
         muted: audioTrack.muted,
       });
     }
+  }
 
-    // CRITICAL DIAGNOSTIC: Log the stream we're about to send
-    log("MEDIA", "🚀 ABOUT TO CALL peer.call() with stream:", {
+  private logStreamDetails(streamToUse: MediaStream, peerId: string, message: string) {
+    log("MEDIA", message, {
       peerId,
       streamId: streamToUse.id,
       streamActive: streamToUse.active,
@@ -1322,251 +1307,240 @@ export class P2PManager {
         settings: typeof t.getSettings === "function" ? t.getSettings() : "N/A",
       })),
     });
+  }
 
-    const mediaConn = this.peer.call(peerId, streamToUse);
-
-    // CRITICAL: Verify the call was created
-    if (!mediaConn) {
-      log("MEDIA", "❌ peer.call() returned null/undefined!", { peerId });
-      return;
-    }
-
-    log("MEDIA", "✅ peer.call() returned MediaConnection", {
-      peerId,
-      mediaConnType: typeof mediaConn,
-      hasOpen: "open" in mediaConn,
-      hasMetadata: !!mediaConn.metadata,
-    });
-
+  private monitorPeerConnectionState(mediaConn: MediaConnection, peerId: string) {
     // Log the peer connection state immediately after call
     const pc = (mediaConn as any).peerConnection as RTCPeerConnection;
     if (pc) {
-      log("MEDIA", "📊 Peer connection state IMMEDIATELY after call", {
-        peerId,
-        connectionState: pc.connectionState,
-        iceConnectionState: pc.iceConnectionState,
-        signalingState: pc.signalingState,
-        senders: pc.getSenders().map((s) => ({
-          trackKind: s.track?.kind,
-          trackId: s.track?.id,
-          trackEnabled: s.track?.enabled,
-          trackMuted: s.track?.muted,
-          trackReadyState: s.track?.readyState,
-          trackLabel: s.track?.label,
-        })),
-        transceivers: pc.getTransceivers().map((t) => ({
-          mid: t.mid,
-          direction: t.direction,
-          currentDirection: t.currentDirection,
-          senderTrackKind: t.sender.track?.kind,
-          senderTrackEnabled: t.sender.track?.enabled,
-          receiverTrackKind: t.receiver.track?.kind,
-        })),
-      });
+      this.logPeerConnectionState(pc, peerId, "IMMEDIATELY after call");
 
       // Also log after a delay to see if state changes
       setTimeout(() => {
-        log("MEDIA", "📊 Peer connection state 500ms after call", {
-          peerId,
-          connectionState: pc.connectionState,
-          iceConnectionState: pc.iceConnectionState,
-          signalingState: pc.signalingState,
-          senders: pc.getSenders().map((s) => ({
-            trackKind: s.track?.kind,
-            trackId: s.track?.id,
-            trackEnabled: s.track?.enabled,
-            trackMuted: s.track?.muted,
-            trackReadyState: s.track?.readyState,
-          })),
-          transceivers: pc.getTransceivers().map((t) => ({
-            mid: t.mid,
-            direction: t.direction,
-            currentDirection: t.currentDirection,
-          })),
-        });
-
-        // CRITICAL: Check if video sender has a track
-        const videoSender = pc
-          .getSenders()
-          .find((s) => s.track?.kind === "video");
-        if (!videoSender) {
-          log("MEDIA", "❌ NO VIDEO SENDER FOUND 500ms after call!", {
-            peerId,
-          });
-        } else if (!videoSender.track) {
-          log("MEDIA", "❌ VIDEO SENDER HAS NO TRACK 500ms after call!", {
-            peerId,
-          });
-        } else {
-          log("MEDIA", "✅ Video sender has track", {
-            peerId,
-            trackId: videoSender.track.id,
-            trackMuted: videoSender.track.muted,
-            trackEnabled: videoSender.track.enabled,
-            trackReadyState: videoSender.track.readyState,
-          });
-        }
+        this.checkVideoSenderState(pc, peerId);
       }, 500);
 
       // Log after 2 seconds to see final state
       setTimeout(() => {
-        log("MEDIA", "📊 Peer connection state 2s after call", {
-          peerId,
-          connectionState: pc.connectionState,
-          iceConnectionState: pc.iceConnectionState,
-          signalingState: pc.signalingState,
-          senders: pc.getSenders().map((s) => ({
-            trackKind: s.track?.kind,
-            trackEnabled: s.track?.enabled,
-            trackReadyState: s.track?.readyState,
-          })),
-          receivers: pc.getReceivers().map((r) => ({
-            trackKind: r.track?.kind,
-            trackEnabled: r.track?.enabled,
-            trackMuted: r.track?.muted,
-            trackReadyState: r.track?.readyState,
-          })),
-        });
-
-        // CRITICAL FIX: If ICE connection is still "new" after 2 seconds,
-        // the signaling may have failed. Try to force renegotiation.
-        if (pc.iceConnectionState === "new" && pc.connectionState === "new") {
-          log(
-            "MEDIA",
-            '⚠️ ICE connection stuck at "new" after 2s - signaling may have failed!',
-            {
-              peerId,
-              signalingState: pc.signalingState,
-              localDescription: pc.localDescription
-                ? {
-                    type: pc.localDescription.type,
-                    sdpLength: pc.localDescription.sdp?.length,
-                  }
-                : null,
-              remoteDescription: pc.remoteDescription
-                ? {
-                    type: pc.remoteDescription.type,
-                    sdpLength: pc.remoteDescription.sdp?.length,
-                  }
-                : null,
-            },
-          );
-
-          // Check if we have local and remote descriptions
-          if (!pc.localDescription || !pc.remoteDescription) {
-            log(
-              "MEDIA",
-              "❌ Missing SDP descriptions - PeerJS signaling failed!",
-              {
-                peerId,
-                hasLocalDesc: !!pc.localDescription,
-                hasRemoteDesc: !!pc.remoteDescription,
-              },
-            );
-          }
-        }
+        this.checkConnectionStateAfterDelay(pc, peerId);
       }, 2000);
 
       // Check again after 5 seconds - if still stuck, try to restart the call
-      setTimeout(async () => {
-        if (pc.iceConnectionState === "new" && pc.connectionState === "new") {
-          log(
-            "MEDIA",
-            "🔄 ICE still stuck after 5s - attempting to restart media connection",
-            { peerId },
-          );
-
-          // Close the current media connection
-          try {
-            mediaConn.close();
-          } catch (e) {
-            // Ignore
-          }
-
-          this.mediaConnections.delete(peerId);
-          this.pendingMediaConnections.delete(peerId);
-
-          // Wait a bit then try again
-          await new Promise((resolve) => setTimeout(resolve, 500));
-
-          // Re-initiate the media connection
-          if (this.dataConnections.has(peerId) && this.localStream) {
-            log("MEDIA", "🔄 Re-initiating media connection after stuck ICE", {
-              peerId,
-            });
-            this.initiateMediaConnection(peerId, this.localStream);
-          }
-        }
+      setTimeout(() => {
+        this.handleStuckConnection(pc, peerId, mediaConn);
       }, 5000);
 
       // CRITICAL: Monitor outbound video stats to see if we're actually sending data
-      // This runs on the SENDER side to diagnose if video data is being transmitted
-      let lastBytesSent = 0;
-      const outboundMonitorInterval = setInterval(() => {
-        if (
-          pc.connectionState === "closed" ||
-          pc.connectionState === "failed"
-        ) {
-          clearInterval(outboundMonitorInterval);
-          return;
-        }
+      this.startOutboundVideoMonitor(pc, peerId, mediaConn);
+    }
+  }
 
-        const videoSender = pc
-          .getSenders()
-          .find((s) => s.track?.kind === "video");
-        if (videoSender && videoSender.track) {
-          pc.getStats(videoSender.track)
-            .then((stats) => {
-              stats.forEach((report) => {
-                if (report.type === "outbound-rtp" && report.kind === "video") {
-                  const bytesSent = report.bytesSent || 0;
-                  const isSendingData = bytesSent > lastBytesSent;
+  private logPeerConnectionState(pc: RTCPeerConnection, peerId: string, context: string) {
+    log("MEDIA", `📊 Peer connection state ${context}`, {
+      peerId,
+      connectionState: pc.connectionState,
+      iceConnectionState: pc.iceConnectionState,
+      signalingState: pc.signalingState,
+      senders: pc.getSenders().map((s) => ({
+        trackKind: s.track?.kind,
+        trackId: s.track?.id,
+        trackEnabled: s.track?.enabled,
+        trackMuted: s.track?.muted,
+        trackReadyState: s.track?.readyState,
+        trackLabel: s.track?.label,
+      })),
+      transceivers: pc.getTransceivers().map((t) => ({
+        mid: t.mid,
+        direction: t.direction,
+        currentDirection: t.currentDirection,
+        senderTrackKind: t.sender.track?.kind,
+        senderTrackEnabled: t.sender.track?.enabled,
+        receiverTrackKind: t.receiver.track?.kind,
+      })),
+    });
+  }
 
-                  log("MEDIA", "📤 OUTBOUND Video RTP stats (SENDER):", {
+  private checkVideoSenderState(pc: RTCPeerConnection, peerId: string) {
+    this.logPeerConnectionState(pc, peerId, "500ms after call");
+
+    // CRITICAL: Check if video sender has a track
+    const videoSender = pc
+      .getSenders()
+      .find((s) => s.track?.kind === "video");
+    if (!videoSender) {
+      log("MEDIA", "❌ NO VIDEO SENDER FOUND 500ms after call!", {
+        peerId,
+      });
+    } else if (!videoSender.track) {
+      log("MEDIA", "❌ VIDEO SENDER HAS NO TRACK 500ms after call!", {
+        peerId,
+      });
+    } else {
+      log("MEDIA", "✅ Video sender has track", {
+        peerId,
+        trackId: videoSender.track.id,
+        trackMuted: videoSender.track.muted,
+        trackEnabled: videoSender.track.enabled,
+        trackReadyState: videoSender.track.readyState,
+      });
+    }
+  }
+
+  private checkConnectionStateAfterDelay(pc: RTCPeerConnection, peerId: string) {
+    log("MEDIA", "📊 Peer connection state 2s after call", {
+      peerId,
+      connectionState: pc.connectionState,
+      iceConnectionState: pc.iceConnectionState,
+      signalingState: pc.signalingState,
+      senders: pc.getSenders().map((s) => ({
+        trackKind: s.track?.kind,
+        trackEnabled: s.track?.enabled,
+        trackReadyState: s.track?.readyState,
+      })),
+      receivers: pc.getReceivers().map((r) => ({
+        trackKind: r.track?.kind,
+        trackEnabled: r.track?.enabled,
+        trackMuted: r.track?.muted,
+        trackReadyState: r.track?.readyState,
+      })),
+    });
+
+    // CRITICAL FIX: If ICE connection is still "new" after 2 seconds,
+    // the signaling may have failed. Try to force renegotiation.
+    if (pc.iceConnectionState === "new" && pc.connectionState === "new") {
+      log(
+        "MEDIA",
+        '⚠️ ICE connection stuck at "new" after 2s - signaling may have failed!',
+        {
+          peerId,
+          signalingState: pc.signalingState,
+          localDescription: pc.localDescription
+            ? {
+                type: pc.localDescription.type,
+                sdpLength: pc.localDescription.sdp?.length,
+              }
+            : null,
+          remoteDescription: pc.remoteDescription
+            ? {
+                type: pc.remoteDescription.type,
+                sdpLength: pc.remoteDescription.sdp?.length,
+              }
+            : null,
+        },
+      );
+
+      // Check if we have local and remote descriptions
+      if (!pc.localDescription || !pc.remoteDescription) {
+        log(
+          "MEDIA",
+          "❌ Missing SDP descriptions - PeerJS signaling failed!",
+          {
+            peerId,
+            hasLocalDesc: !!pc.localDescription,
+            hasRemoteDesc: !!pc.remoteDescription,
+          },
+        );
+      }
+    }
+  }
+
+  private async handleStuckConnection(pc: RTCPeerConnection, peerId: string, mediaConn: MediaConnection) {
+    if (pc.iceConnectionState === "new" && pc.connectionState === "new") {
+      log(
+        "MEDIA",
+        "🔄 ICE still stuck after 5s - attempting to restart media connection",
+        { peerId },
+      );
+
+      // Close the current media connection
+      try {
+        mediaConn.close();
+      } catch (e) {
+        // Ignore
+      }
+
+      this.mediaConnections.delete(peerId);
+      this.pendingMediaConnections.delete(peerId);
+
+      // Wait a bit then try again
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      // Re-initiate the media connection
+      if (this.dataConnections.has(peerId) && this.localStream) {
+        log("MEDIA", "🔄 Re-initiating media connection after stuck ICE", {
+          peerId,
+        });
+        this.initiateMediaConnection(peerId, this.localStream);
+      }
+    }
+  }
+
+  private startOutboundVideoMonitor(pc: RTCPeerConnection, peerId: string, mediaConn: MediaConnection) {
+    // CRITICAL: Monitor outbound video stats to see if we're actually sending data
+    // This runs on the SENDER side to diagnose if video data is being transmitted
+    let lastBytesSent = 0;
+    const outboundMonitorInterval = setInterval(() => {
+      if (
+        pc.connectionState === "closed" ||
+        pc.connectionState === "failed"
+      ) {
+        clearInterval(outboundMonitorInterval);
+        return;
+      }
+
+      const videoSender = pc
+        .getSenders()
+        .find((s) => s.track?.kind === "video");
+      if (videoSender && videoSender.track) {
+        pc.getStats(videoSender.track)
+          .then((stats) => {
+            stats.forEach((report) => {
+              if (report.type === "outbound-rtp" && report.kind === "video") {
+                const bytesSent = report.bytesSent || 0;
+                const isSendingData = bytesSent > lastBytesSent;
+
+                log("MEDIA", "📤 OUTBOUND Video RTP stats (SENDER):", {
+                  peerId,
+                  bytesSent,
+                  bytesDelta: bytesSent - lastBytesSent,
+                  isSendingData,
+                  packetsSent: report.packetsSent,
+                  framesEncoded: report.framesEncoded,
+                  framesSent: report.framesSent,
+                  frameWidth: report.frameWidth,
+                  frameHeight: report.frameHeight,
+                  framesPerSecond: report.framesPerSecond,
+                  qualityLimitationReason: report.qualityLimitationReason,
+                  trackMuted: videoSender.track?.muted,
+                  trackEnabled: videoSender.track?.enabled,
+                  trackReadyState: videoSender.track?.readyState,
+                });
+
+                // If not sending data, log a warning
+                if (!isSendingData && lastBytesSent > 0) {
+                  log("MEDIA", "⚠️ SENDER: No video data being sent!", {
                     peerId,
                     bytesSent,
-                    bytesDelta: bytesSent - lastBytesSent,
-                    isSendingData,
-                    packetsSent: report.packetsSent,
-                    framesEncoded: report.framesEncoded,
-                    framesSent: report.framesSent,
-                    frameWidth: report.frameWidth,
-                    frameHeight: report.frameHeight,
-                    framesPerSecond: report.framesPerSecond,
-                    qualityLimitationReason: report.qualityLimitationReason,
+                    lastBytesSent,
                     trackMuted: videoSender.track?.muted,
                     trackEnabled: videoSender.track?.enabled,
-                    trackReadyState: videoSender.track?.readyState,
                   });
-
-                  // If not sending data, log a warning
-                  if (!isSendingData && lastBytesSent > 0) {
-                    log("MEDIA", "⚠️ SENDER: No video data being sent!", {
-                      peerId,
-                      bytesSent,
-                      lastBytesSent,
-                      trackMuted: videoSender.track?.muted,
-                      trackEnabled: videoSender.track?.enabled,
-                    });
-                  }
-
-                  lastBytesSent = bytesSent;
                 }
-              });
-            })
-            .catch(() => {});
-        }
-      }, 5000);
 
-      // Clean up monitor when media connection closes
-      const originalClose = mediaConn.close.bind(mediaConn);
-      mediaConn.close = () => {
-        clearInterval(outboundMonitorInterval);
-        originalClose();
-      };
-    }
+                lastBytesSent = bytesSent;
+              }
+            });
+          })
+          .catch(() => {});
+      }
+    }, 5000);
 
-    this.setupMediaConnectionHandlers(mediaConn, peerId);
+    // Clean up monitor when media connection closes
+    const originalClose = mediaConn.close.bind(mediaConn);
+    mediaConn.close = () => {
+      clearInterval(outboundMonitorInterval);
+      originalClose();
+    };
   }
 
   /**
@@ -3214,14 +3188,26 @@ export class P2PManager {
       return;
     }
 
+    this.logTrackUpdateStart(pc, stream, peerId);
+
+    const senders = pc.getSenders();
+
+    // If no senders exist yet, add tracks
+    if (senders.length === 0) {
+      this.addTracksToConnection(pc, stream, peerId);
+    } else {
+      this.updateVideoTrack(pc, stream, peerId);
+      this.updateAudioTrack(pc, stream, peerId);
+    }
+  }
+
+  private logTrackUpdateStart(pc: RTCPeerConnection, stream: MediaStream, peerId: string) {
     const videoTrack = stream.getVideoTracks()[0];
     const audioTrack = stream.getAudioTracks()[0];
     const senders = pc.getSenders();
     const transceivers = pc.getTransceivers();
 
     // CRITICAL DIAGNOSTIC: Determine if this is an incoming or outgoing connection
-    // For incoming calls (participant answering host's call), the local description type is 'answer'
-    // For outgoing calls (host calling participant), the local description type is 'offer'
     const isIncomingConnection = pc.localDescription?.type === "answer";
     const isOutgoingConnection = pc.localDescription?.type === "offer";
 
@@ -3268,297 +3254,322 @@ export class P2PManager {
         transceiverDirections: transceivers.map((t) => t.direction),
       });
     }
+  }
 
-    // If no senders exist yet, add tracks
-    if (senders.length === 0) {
-      try {
-        if (videoTrack) {
-          pc.addTrack(videoTrack, stream);
-          log("STREAM", "Added video track", { peerId });
-        }
-        if (audioTrack) {
-          pc.addTrack(audioTrack, stream);
-          log("STREAM", "Added audio track", { peerId });
-        }
-      } catch (error) {
-        log("STREAM", "Error adding tracks", {
-          peerId,
-          error: (error as Error).message,
-        });
+  private addTracksToConnection(pc: RTCPeerConnection, stream: MediaStream, peerId: string) {
+    const videoTrack = stream.getVideoTracks()[0];
+    const audioTrack = stream.getAudioTracks()[0];
+    
+    try {
+      if (videoTrack) {
+        pc.addTrack(videoTrack, stream);
+        log("STREAM", "Added video track", { peerId });
+      }
+      if (audioTrack) {
+        pc.addTrack(audioTrack, stream);
+        log("STREAM", "Added audio track", { peerId });
+      }
+    } catch (error) {
+      log("STREAM", "Error adding tracks", {
+        peerId,
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  private updateVideoTrack(pc: RTCPeerConnection, stream: MediaStream, peerId: string) {
+    const videoTrack = stream.getVideoTracks()[0];
+    if (videoTrack) {
+      log("STREAM", "📹 Looking for video sender to replace track", {
+        peerId,
+        newVideoTrackId: videoTrack.id,
+        newVideoTrackEnabled: videoTrack.enabled,
+        newVideoTrackMuted: videoTrack.muted,
+        newVideoTrackReadyState: videoTrack.readyState,
+      });
+
+      const videoSender = this.findVideoSender(pc, peerId);
+
+      if (videoSender) {
+        this.replaceVideoTrack(videoSender, videoTrack, peerId, stream, pc);
+      } else {
+        this.addVideoTrackFallback(pc, videoTrack, stream, peerId);
       }
     } else {
-      // CRITICAL FIX: Use transceivers to find the video sender
-      // When camera is toggled off, the sender's track becomes null or ended
-      // but the transceiver still exists and we can use replaceTrack on it
-      if (videoTrack) {
-        log("STREAM", "📹 Looking for video sender to replace track", {
+      log("STREAM", "📹 No video track to update (camera may be off)", {
+        peerId,
+      });
+    }
+  }
+
+  private findVideoSender(pc: RTCPeerConnection, peerId: string): RTCRtpSender | undefined {
+    const senders = pc.getSenders();
+    const transceivers = pc.getTransceivers();
+    
+    // First try to find sender with existing video track (live or ended)
+    let videoSender = senders.find((s) => s.track?.kind === "video");
+    let foundVia = "existing sender with video track";
+
+    // CRITICAL: Also check for sender with ended track
+    if (!videoSender) {
+      const senderWithEndedTrack = senders.find(
+        (s) =>
+          s.track &&
+          s.track.readyState === "ended" &&
+          s.track.kind === "video",
+      );
+      if (senderWithEndedTrack) {
+        videoSender = senderWithEndedTrack;
+        foundVia = "sender with ended video track";
+        log("STREAM", "🔍 Found video sender with ENDED track", {
           peerId,
-          newVideoTrackId: videoTrack.id,
-          newVideoTrackEnabled: videoTrack.enabled,
-          newVideoTrackMuted: videoTrack.muted,
-          newVideoTrackReadyState: videoTrack.readyState,
-        });
-
-        // First try to find sender with existing video track (live or ended)
-        let videoSender = senders.find((s) => s.track?.kind === "video");
-        let foundVia = "existing sender with video track";
-
-        // CRITICAL: Also check for sender with ended track
-        if (!videoSender) {
-          // Check if any sender has a track that was video but is now ended
-          const senderWithEndedTrack = senders.find(
-            (s) =>
-              s.track &&
-              s.track.readyState === "ended" &&
-              s.track.kind === "video",
-          );
-          if (senderWithEndedTrack) {
-            videoSender = senderWithEndedTrack;
-            foundVia = "sender with ended video track";
-            log("STREAM", "🔍 Found video sender with ENDED track", {
-              peerId,
-              trackId: senderWithEndedTrack.track?.id,
-              trackReadyState: senderWithEndedTrack.track?.readyState,
-            });
-          }
-        }
-
-        // If not found, look for a transceiver that was used for video
-        // CRITICAL: Use receiver.track.kind to identify the video transceiver
-        // because the sender.track may be null when camera was toggled off
-        if (!videoSender) {
-          log(
-            "STREAM",
-            "🔍 No sender with video track found, checking transceivers...",
-            { peerId },
-          );
-
-          // First, try to find by receiver track kind (most reliable)
-          const videoTransceiver = transceivers.find(
-            (t) => t.receiver.track?.kind === "video",
-          );
-
-          if (videoTransceiver) {
-            videoSender = videoTransceiver.sender;
-            foundVia = "transceiver (receiver.track.kind === video)";
-            log("STREAM", "🔍 Found video sender via transceiver", {
-              peerId,
-              mid: videoTransceiver.mid,
-              direction: videoTransceiver.direction,
-              currentDirection: videoTransceiver.currentDirection,
-              senderTrackNull: videoTransceiver.sender.track === null,
-              senderTrackKind: videoTransceiver.sender.track?.kind,
-              senderTrackReadyState: videoTransceiver.sender.track?.readyState,
-            });
-          } else {
-            log(
-              "STREAM",
-              "⚠️ No video transceiver found by receiver.track.kind",
-              { peerId },
-            );
-
-            // Fallback: look for first transceiver with null sender track that's not audio
-            // This is less reliable but may work in some cases
-            const audioTransceiver = transceivers.find(
-              (t) => t.receiver.track?.kind === "audio",
-            );
-            const nullTrackTransceiver = transceivers.find(
-              (t) =>
-                t.sender.track === null &&
-                t.mid !== null &&
-                t.direction !== "inactive" &&
-                t !== audioTransceiver,
-            );
-            if (nullTrackTransceiver) {
-              videoSender = nullTrackTransceiver.sender;
-              foundVia = "transceiver (null track, not audio)";
-              log(
-                "STREAM",
-                "🔍 Found video sender via null track transceiver",
-                {
-                  peerId,
-                  mid: nullTrackTransceiver.mid,
-                  direction: nullTrackTransceiver.direction,
-                },
-              );
-            }
-          }
-        }
-
-        if (videoSender) {
-          log(
-            "STREAM",
-            `📹📹📹 REPLACING VIDEO TRACK (found via: ${foundVia}) 📹📹📹`,
-            {
-              peerId,
-              newTrackId: videoTrack.id,
-              newTrackEnabled: videoTrack.enabled,
-              newTrackMuted: videoTrack.muted,
-              newTrackReadyState: videoTrack.readyState,
-              currentSenderTrackId: videoSender.track?.id || "null",
-              currentSenderTrackKind: videoSender.track?.kind || "null",
-              currentSenderTrackReadyState:
-                videoSender.track?.readyState || "null",
-            },
-          );
-
-          videoSender
-            .replaceTrack(videoTrack)
-            .then(() => {
-              log("STREAM", "✅✅✅ REPLACED VIDEO TRACK SUCCESSFULLY ✅✅✅", {
-                peerId,
-                newTrackId: videoTrack.id,
-                newTrackEnabled: videoTrack.enabled,
-                newTrackMuted: videoTrack.muted,
-                newTrackReadyState: videoTrack.readyState,
-              });
-
-              // CRITICAL: Verify the track was actually set
-              setTimeout(() => {
-                const verifyTrack = videoSender!.track;
-                log(
-                  "STREAM",
-                  "📊 Video sender state 100ms after replaceTrack",
-                  {
-                    peerId,
-                    senderTrackId: verifyTrack?.id || "null",
-                    senderTrackKind: verifyTrack?.kind || "null",
-                    senderTrackEnabled: verifyTrack?.enabled,
-                    senderTrackMuted: verifyTrack?.muted,
-                    senderTrackReadyState: verifyTrack?.readyState || "null",
-                    trackMatchesNewTrack: verifyTrack?.id === videoTrack.id,
-                  },
-                );
-
-                if (!verifyTrack || verifyTrack.id !== videoTrack.id) {
-                  log(
-                    "STREAM",
-                    "❌❌❌ TRACK REPLACEMENT VERIFICATION FAILED! ❌❌❌",
-                    {
-                      peerId,
-                      expectedTrackId: videoTrack.id,
-                      actualTrackId: verifyTrack?.id || "null",
-                    },
-                  );
-                }
-              }, 100);
-
-              // Also check after 500ms
-              setTimeout(() => {
-                const verifyTrack = videoSender!.track;
-                log(
-                  "STREAM",
-                  "📊 Video sender state 500ms after replaceTrack",
-                  {
-                    peerId,
-                    senderTrackId: verifyTrack?.id || "null",
-                    senderTrackEnabled: verifyTrack?.enabled,
-                    senderTrackMuted: verifyTrack?.muted,
-                    senderTrackReadyState: verifyTrack?.readyState || "null",
-                  },
-                );
-              }, 500);
-            })
-            .catch((error) => {
-              log("STREAM", "❌❌❌ ERROR REPLACING VIDEO TRACK ❌❌❌", {
-                peerId,
-                error: (error as Error).message,
-                errorName: (error as Error).name,
-                errorStack: (error as Error).stack,
-              });
-              // Try adding instead
-              try {
-                pc.addTrack(videoTrack, stream);
-                log(
-                  "STREAM",
-                  "✅ Added video track as fallback after replaceTrack failed",
-                  { peerId },
-                );
-              } catch (e) {
-                log("STREAM", "❌ Error adding video track as fallback", {
-                  peerId,
-                  error: (e as Error).message,
-                });
-              }
-            });
-        } else {
-          log("STREAM", "⚠️⚠️⚠️ NO VIDEO SENDER FOUND! ⚠️⚠️⚠️", {
-            peerId,
-            senderCount: senders.length,
-            transceiverCount: transceivers.length,
-            allSenderKinds: senders.map((s) => s.track?.kind || "null"),
-            allTransceiverReceiverKinds: transceivers.map(
-              (t) => t.receiver.track?.kind || "null",
-            ),
-          });
-          try {
-            pc.addTrack(videoTrack, stream);
-            log(
-              "STREAM",
-              "✅ Added new video track (no existing sender or transceiver)",
-              { peerId },
-            );
-          } catch (error) {
-            log("STREAM", "❌ Error adding video track", {
-              peerId,
-              error: (error as Error).message,
-            });
-          }
-        }
-      } else {
-        log("STREAM", "📹 No video track to update (camera may be off)", {
-          peerId,
+          trackId: senderWithEndedTrack.track?.id,
+          trackReadyState: senderWithEndedTrack.track?.readyState,
         });
       }
+    }
 
-      // Same fix for audio track
-      if (audioTrack) {
-        let audioSender = senders.find((s) => s.track?.kind === "audio");
+    // If not found, look for a transceiver that was used for video
+    if (!videoSender) {
+      log(
+        "STREAM",
+        "🔍 No sender with video track found, checking transceivers...",
+        { peerId },
+      );
 
-        if (!audioSender) {
-          const audioTransceiver = transceivers.find(
-            (t) => t.receiver.track?.kind === "audio",
+      // First, try to find by receiver track kind (most reliable)
+      const videoTransceiver = transceivers.find(
+        (t) => t.receiver.track?.kind === "video",
+      );
+
+      if (videoTransceiver) {
+        videoSender = videoTransceiver.sender;
+        foundVia = "transceiver (receiver.track.kind === video)";
+        log("STREAM", "🔍 Found video sender via transceiver", {
+          peerId,
+          mid: videoTransceiver.mid,
+          direction: videoTransceiver.direction,
+          currentDirection: videoTransceiver.currentDirection,
+          senderTrackNull: videoTransceiver.sender.track === null,
+          senderTrackKind: videoTransceiver.sender.track?.kind,
+          senderTrackReadyState: videoTransceiver.sender.track?.readyState,
+        });
+      } else {
+        log(
+          "STREAM",
+          "⚠️ No video transceiver found by receiver.track.kind",
+          { peerId },
+        );
+
+        // Fallback: look for first transceiver with null sender track that's not audio
+        const audioTransceiver = transceivers.find(
+          (t) => t.receiver.track?.kind === "audio",
+        );
+        const nullTrackTransceiver = transceivers.find(
+          (t) =>
+            t.sender.track === null &&
+            t.mid !== null &&
+            t.direction !== "inactive" &&
+            t !== audioTransceiver,
+        );
+        if (nullTrackTransceiver) {
+          videoSender = nullTrackTransceiver.sender;
+          foundVia = "transceiver (null track, not audio)";
+          log(
+            "STREAM",
+            "🔍 Found video sender via null track transceiver",
+            {
+              peerId,
+              mid: nullTrackTransceiver.mid,
+              direction: nullTrackTransceiver.direction,
+            },
           );
-          if (audioTransceiver) {
-            audioSender = audioTransceiver.sender;
-            log("STREAM", "🔍 Found audio sender via transceiver", {
-              peerId,
-              mid: audioTransceiver.mid,
-            });
-          }
         }
+      }
+    }
 
-        if (audioSender) {
-          audioSender
-            .replaceTrack(audioTrack)
-            .then(() => {
-              log("STREAM", "✅ Replaced audio track successfully", { peerId });
-            })
-            .catch((error) => {
-              log("STREAM", "❌ Error replacing audio track", {
-                peerId,
-                error: (error as Error).message,
-              });
-              try {
-                pc.addTrack(audioTrack, stream);
-              } catch (e) {
-                log("STREAM", "❌ Error adding audio track as fallback", {
-                  peerId,
-                });
-              }
-            });
-        } else {
-          try {
-            pc.addTrack(audioTrack, stream);
-            log("STREAM", "Added new audio track (no existing sender)", {
-              peerId,
-            });
-          } catch (error) {
-            log("STREAM", "Error adding audio track", {
+    if (videoSender) {
+      log("STREAM", `🔍 Video sender found via: ${foundVia}`, { peerId });
+    }
+
+    return videoSender;
+  }
+
+  private replaceVideoTrack(
+    videoSender: RTCRtpSender, 
+    videoTrack: MediaStreamTrack, 
+    peerId: string, 
+    stream: MediaStream, 
+    pc: RTCPeerConnection
+  ) {
+    log(
+      "STREAM",
+      `📹📹📹 REPLACING VIDEO TRACK 📹📹📹`,
+      {
+        peerId,
+        newTrackId: videoTrack.id,
+        newTrackEnabled: videoTrack.enabled,
+        newTrackMuted: videoTrack.muted,
+        newTrackReadyState: videoTrack.readyState,
+        currentSenderTrackId: videoSender.track?.id || "null",
+        currentSenderTrackKind: videoSender.track?.kind || "null",
+        currentSenderTrackReadyState:
+          videoSender.track?.readyState || "null",
+      },
+    );
+
+    videoSender
+      .replaceTrack(videoTrack)
+      .then(() => {
+        log("STREAM", "✅✅✅ REPLACED VIDEO TRACK SUCCESSFULLY ✅✅✅", {
+          peerId,
+          newTrackId: videoTrack.id,
+          newTrackEnabled: videoTrack.enabled,
+          newTrackMuted: videoTrack.muted,
+          newTrackReadyState: videoTrack.readyState,
+        });
+
+        this.verifyVideoTrackReplacement(videoSender, videoTrack, peerId);
+      })
+      .catch((error) => {
+        log("STREAM", "❌❌❌ ERROR REPLACING VIDEO TRACK ❌❌❌", {
+          peerId,
+          error: (error as Error).message,
+          errorName: (error as Error).name,
+          errorStack: (error as Error).stack,
+        });
+        // Try adding instead
+        this.addVideoTrackFallback(pc, videoTrack, stream, peerId);
+      });
+  }
+
+  private verifyVideoTrackReplacement(videoSender: RTCRtpSender, videoTrack: MediaStreamTrack, peerId: string) {
+    // CRITICAL: Verify the track was actually set
+    setTimeout(() => {
+      const verifyTrack = videoSender!.track;
+      log(
+        "STREAM",
+        "📊 Video sender state 100ms after replaceTrack",
+        {
+          peerId,
+          senderTrackId: verifyTrack?.id || "null",
+          senderTrackKind: verifyTrack?.kind || "null",
+          senderTrackEnabled: verifyTrack?.enabled,
+          senderTrackMuted: verifyTrack?.muted,
+          senderTrackReadyState: verifyTrack?.readyState || "null",
+          trackMatchesNewTrack: verifyTrack?.id === videoTrack.id,
+        },
+      );
+
+      if (!verifyTrack || verifyTrack.id !== videoTrack.id) {
+        log(
+          "STREAM",
+          "❌❌❌ TRACK REPLACEMENT VERIFICATION FAILED! ❌❌❌",
+          {
+            peerId,
+            expectedTrackId: videoTrack.id,
+            actualTrackId: verifyTrack?.id || "null",
+          },
+        );
+      }
+    }, 100);
+
+    // Also check after 500ms
+    setTimeout(() => {
+      const verifyTrack = videoSender!.track;
+      log(
+        "STREAM",
+        "📊 Video sender state 500ms after replaceTrack",
+        {
+          peerId,
+          senderTrackId: verifyTrack?.id || "null",
+          senderTrackEnabled: verifyTrack?.enabled,
+          senderTrackMuted: verifyTrack?.muted,
+          senderTrackReadyState: verifyTrack?.readyState || "null",
+        },
+      );
+    }, 500);
+  }
+
+  private addVideoTrackFallback(pc: RTCPeerConnection, videoTrack: MediaStreamTrack, stream: MediaStream, peerId: string) {
+    const senders = pc.getSenders();
+    const transceivers = pc.getTransceivers();
+    
+    log("STREAM", "⚠️⚠️⚠️ NO VIDEO SENDER FOUND OR REPLACE FAILED! ⚠️⚠️⚠️", {
+      peerId,
+      senderCount: senders.length,
+      transceiverCount: transceivers.length,
+      allSenderKinds: senders.map((s) => s.track?.kind || "null"),
+      allTransceiverReceiverKinds: transceivers.map(
+        (t) => t.receiver.track?.kind || "null",
+      ),
+    });
+    try {
+      pc.addTrack(videoTrack, stream);
+      log(
+        "STREAM",
+        "✅ Added new video track (fallback)",
+        { peerId },
+      );
+    } catch (error) {
+      log("STREAM", "❌ Error adding video track", {
+        peerId,
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  private updateAudioTrack(pc: RTCPeerConnection, stream: MediaStream, peerId: string) {
+    const audioTrack = stream.getAudioTracks()[0];
+    if (audioTrack) {
+      const senders = pc.getSenders();
+      const transceivers = pc.getTransceivers();
+      
+      let audioSender = senders.find((s) => s.track?.kind === "audio");
+
+      if (!audioSender) {
+        const audioTransceiver = transceivers.find(
+          (t) => t.receiver.track?.kind === "audio",
+        );
+        if (audioTransceiver) {
+          audioSender = audioTransceiver.sender;
+          log("STREAM", "🔍 Found audio sender via transceiver", {
+            peerId,
+            mid: audioTransceiver.mid,
+          });
+        }
+      }
+
+      if (audioSender) {
+        audioSender
+          .replaceTrack(audioTrack)
+          .then(() => {
+            log("STREAM", "✅ Replaced audio track successfully", { peerId });
+          })
+          .catch((error) => {
+            log("STREAM", "❌ Error replacing audio track", {
               peerId,
               error: (error as Error).message,
             });
-          }
+            try {
+              pc.addTrack(audioTrack, stream);
+            } catch (e) {
+              log("STREAM", "❌ Error adding audio track as fallback", {
+                peerId,
+              });
+            }
+          });
+      } else {
+        try {
+          pc.addTrack(audioTrack, stream);
+          log("STREAM", "Added new audio track (no existing sender)", {
+            peerId,
+          });
+        } catch (error) {
+          log("STREAM", "Error adding audio track", {
+            peerId,
+            error: (error as Error).message,
+          });
         }
       }
     }
@@ -3864,552 +3875,616 @@ export class P2PManager {
 
     switch (message.type) {
       case "room-full":
-        log("MSG", "🚫 Room is full");
-        this.onRoomFullCallback?.();
-        this.handlePeerDisconnection(fromPeerId);
+        this.handleRoomFullMessage(fromPeerId);
         break;
 
       case "peer-info":
-        log("MSG", "👤 Received peer-info", {
-          from: fromPeerId,
-          name: message.data.name,
-          hasStream: message.data.hasStream,
-          isHost: this.isHost,
-          currentPeersCount: this.peers.size,
-        });
-
-        // Register the peer
-        this.peers.set(fromPeerId, {
-          id: fromPeerId,
-          name: message.data.name,
-          isHost: message.data.isHost || false,
-          joinedAt: Date.now(),
-        });
-
-        log("MSG", "✅ Peer registered", {
-          peerId: fromPeerId,
-          totalPeers: this.peers.size,
-          allPeerIds: Array.from(this.peers.keys()),
-        });
-
-        // If host, notify all other participants AND initiate media call
-        if (this.isHost) {
-          log("MSG", "📢 HOST: Broadcasting peer-joined to other participants");
-          const peerJoinedMessage: P2PMessage = {
-            type: "peer-joined",
-            data: this.peers.get(fromPeerId),
-            senderId: this.myId,
-            timestamp: Date.now(),
-          };
-
-          this.broadcast(peerJoinedMessage, fromPeerId);
-
-          // NOTE: Host media call is now initiated in connectToPeer() when data connection opens
-          // This prevents duplicate calls and race conditions
-          log(
-            "MSG",
-            "📋 HOST: Media call will be initiated from data connection handler",
-            {
-              peerId: fromPeerId,
-              hasMediaConnection: this.mediaConnections.has(fromPeerId),
-              hasPendingMediaConnection:
-                this.pendingMediaConnections.has(fromPeerId),
-            },
-          );
-        }
-
-        log("MSG", "🔔 Calling onPeerConnectedCallback", {
-          peerId: fromPeerId,
-          name: message.data.name,
-        });
-        this.onPeerConnectedCallback?.(fromPeerId, message.data);
+        this.handlePeerInfoMessage(message, fromPeerId);
         break;
 
-      case "peer-list": {
-        // Receive participant list and connect to them
-        const peerList = message.data as PeerInfo[];
-        log("MSG", "📋 Received peer-list", {
-          count: peerList.length,
-          peers: peerList.map((p) => ({ id: p.id, name: p.name })),
-          fromPeerId,
-          myId: this.myId,
-        });
-
-        // CRITICAL FIX: First, ensure the host (sender of peer-list) is registered
-        // The host sends the peer-list, so fromPeerId IS the host
-        // We need to make sure the host is in our peers map and UI is notified
-        if (!this.peers.has(fromPeerId)) {
-          // Find host info in the peer list
-          const hostInfo = peerList.find((p) => p.id === fromPeerId);
-          if (hostInfo) {
-            log("MSG", "👑 Registering HOST from peer-list", {
-              hostId: fromPeerId,
-              hostName: hostInfo.name,
-            });
-            this.peers.set(fromPeerId, hostInfo);
-            this.onPeerConnectedCallback?.(fromPeerId, hostInfo);
-          } else {
-            // Host not in list (shouldn't happen, but handle it)
-            log("MSG", "⚠️ Host not found in peer-list, creating entry", {
-              fromPeerId,
-            });
-            const hostEntry: PeerInfo = {
-              id: fromPeerId,
-              name: "Host",
-              isHost: true,
-              joinedAt: Date.now(),
-            };
-            this.peers.set(fromPeerId, hostEntry);
-            this.onPeerConnectedCallback?.(fromPeerId, hostEntry);
-          }
-        }
-
-        // Process other peers in the list
-        peerList.forEach((peer) => {
-          log("MSG", "🔍 Processing peer from list", {
-            peerId: peer.id,
-            peerName: peer.name,
-            isMyself: peer.id === this.myId,
-            isFromPeer: peer.id === fromPeerId,
-            alreadyInPeers: this.peers.has(peer.id),
-            alreadyConnected: this.dataConnections.has(peer.id),
-          });
-
-          // Skip ourselves
-          if (peer.id === this.myId) {
-            log("MSG", "⏭️ Skipping self", { peerId: peer.id });
-            return;
-          }
-
-          // Skip the host (already handled above)
-          if (peer.id === fromPeerId) {
-            log("MSG", "⏭️ Skipping host (already registered)", {
-              peerId: peer.id,
-            });
-            return;
-          }
-
-          // Add other peers to our internal list
-          if (!this.peers.has(peer.id)) {
-            this.peers.set(peer.id, peer);
-            log("MSG", "✅ Peer added to list", {
-              peerId: peer.id,
-              totalPeers: this.peers.size,
-            });
-
-            // Notify callback that this peer is connected (for UI update)
-            log(
-              "MSG",
-              "🔔 Calling onPeerConnectedCallback for peer from list",
-              { peerId: peer.id },
-            );
-            this.onPeerConnectedCallback?.(peer.id, peer);
-          }
-
-          // Connect to other participants (not the host we're already connected to)
-          if (!this.dataConnections.has(peer.id)) {
-            log("MSG", "🔗 Connecting to peer from list", { peerId: peer.id });
-            setTimeout(
-              () => this.connectToPeer(peer.id, this.localStream),
-              500,
-            );
-          }
-        });
-
-        log("MSG", "📋 Peer-list processing complete", {
-          totalPeers: this.peers.size,
-          peerIds: Array.from(this.peers.keys()),
-        });
+      case "peer-list":
+        this.handlePeerListMessage(message, fromPeerId);
         break;
-      }
 
-      case "peer-joined": {
-        // A new participant joined
-        const newPeer = message.data as PeerInfo;
-        log("MSG", "🆕 New peer joined notification", {
-          peerId: newPeer.id,
-          name: newPeer.name,
-          isMyself: newPeer.id === this.myId,
-          alreadyConnected: this.dataConnections.has(newPeer.id),
-          alreadyInPeers: this.peers.has(newPeer.id),
-        });
-
-        if (newPeer.id !== this.myId) {
-          // Add to peers map if not already there
-          if (!this.peers.has(newPeer.id)) {
-            this.peers.set(newPeer.id, newPeer);
-            log("MSG", "✅ New peer added to peers map", {
-              peerId: newPeer.id,
-              totalPeers: this.peers.size,
-            });
-
-            // CRITICAL: Notify UI about the new peer
-            log("MSG", "🔔 Calling onPeerConnectedCallback for new peer", {
-              peerId: newPeer.id,
-              name: newPeer.name,
-            });
-            this.onPeerConnectedCallback?.(newPeer.id, newPeer);
-          }
-
-          // Connect to new participant if not already connected
-          if (!this.dataConnections.has(newPeer.id)) {
-            log("MSG", "🔗 Connecting to new peer", { peerId: newPeer.id });
-            // Connect to new participant with local stream
-            setTimeout(
-              () => this.connectToPeer(newPeer.id, this.localStream),
-              500,
-            );
-          }
-        }
+      case "peer-joined":
+        this.handlePeerJoinedMessage(message);
         break;
-      }
 
       case "peer-left":
-        log("MSG", "Peer left", { peerId: fromPeerId });
-        this.peers.delete(fromPeerId);
-        this.connectionStates.delete(fromPeerId);
-        this.iceConnectionStates.delete(fromPeerId);
-        this.onPeerDisconnectedCallback?.(fromPeerId);
+        this.handlePeerLeftMessage(fromPeerId);
         break;
 
       case "stream-ready":
-        // Peer's stream is ready, initiate media connection if we don't have one
-        log("MSG", "Peer stream ready", {
-          peerId: fromPeerId,
-          data: message.data,
-        });
-
-        // CRITICAL FIX: If peer is requesting a stream refresh, re-send our video track
-        if (message.data?.requestRefresh) {
-          log(
-            "MSG",
-            "🔄 Peer requested stream refresh - re-sending video track",
-            { peerId: fromPeerId },
-          );
-
-          // Get the media connection for this peer
-          const refreshMediaConn = this.mediaConnections.get(fromPeerId);
-          if (refreshMediaConn && this.localStream) {
-            const refreshPc = (refreshMediaConn as any)
-              .peerConnection as RTCPeerConnection;
-            // Accept more connection states - the connection might still be establishing
-            if (
-              refreshPc &&
-              (refreshPc.connectionState === "connected" ||
-                refreshPc.connectionState === "connecting" ||
-                refreshPc.iceConnectionState === "connected" ||
-                refreshPc.iceConnectionState === "checking")
-            ) {
-              const currentVideoTrack = this.localStream.getVideoTracks()[0];
-              if (currentVideoTrack) {
-                log("MSG", "📹 Refreshing video track", {
-                  peerId: fromPeerId,
-                  trackId: currentVideoTrack.id,
-                  enabled: currentVideoTrack.enabled,
-                  muted: currentVideoTrack.muted,
-                  readyState: currentVideoTrack.readyState,
-                  connectionState: refreshPc.connectionState,
-                  iceConnectionState: refreshPc.iceConnectionState,
-                });
-
-                // Try to replace the video track to force a refresh
-                const refreshVideoSender = refreshPc
-                  .getSenders()
-                  .find((s) => s.track?.kind === "video");
-                if (refreshVideoSender) {
-                  // First, try to get a fresh video track
-                  navigator.mediaDevices
-                    .getUserMedia({
-                      video: {
-                        width: { ideal: 640 },
-                        height: { ideal: 480 },
-                        facingMode: "user",
-                      },
-                    })
-                    .then(async (freshStream) => {
-                      const freshVideoTrack = freshStream.getVideoTracks()[0];
-                      if (freshVideoTrack) {
-                        log("MSG", "✅ Got fresh video track for refresh", {
-                          peerId: fromPeerId,
-                          newTrackId: freshVideoTrack.id,
-                          muted: freshVideoTrack.muted,
-                          enabled: freshVideoTrack.enabled,
-                          readyState: freshVideoTrack.readyState,
-                        });
-
-                        // CRITICAL FIX: Wait for the track to unmute if needed
-                        if (freshVideoTrack.muted) {
-                          log(
-                            "MSG",
-                            "⏳ Fresh video track is muted (refresh), waiting for unmute...",
-                            { peerId: fromPeerId },
-                          );
-
-                          await new Promise<void>((resolve) => {
-                            let resolved = false;
-
-                            const onUnmute = () => {
-                              if (!resolved) {
-                                resolved = true;
-                                freshVideoTrack.removeEventListener(
-                                  "unmute",
-                                  onUnmute,
-                                );
-                                log(
-                                  "MSG",
-                                  "✅ Video track unmuted (refresh), proceeding",
-                                  {
-                                    peerId: fromPeerId,
-                                    muted: freshVideoTrack.muted,
-                                  },
-                                );
-                                resolve();
-                              }
-                            };
-
-                            freshVideoTrack.addEventListener(
-                              "unmute",
-                              onUnmute,
-                            );
-
-                            // Also check immediately in case it already unmuted
-                            if (!freshVideoTrack.muted) {
-                              onUnmute();
-                            }
-
-                            // Timeout after 3 seconds
-                            setTimeout(() => {
-                              if (!resolved) {
-                                resolved = true;
-                                freshVideoTrack.removeEventListener(
-                                  "unmute",
-                                  onUnmute,
-                                );
-                                log(
-                                  "MSG",
-                                  "⚠️ Timeout waiting for video track to unmute (refresh), proceeding anyway",
-                                  {
-                                    peerId: fromPeerId,
-                                    muted: freshVideoTrack.muted,
-                                  },
-                                );
-                                resolve();
-                              }
-                            }, 3000);
-                          });
-                        }
-
-                        // Now replace the track in the sender
-                        try {
-                          await refreshVideoSender.replaceTrack(
-                            freshVideoTrack,
-                          );
-                          log("MSG", "✅ Video track replaced successfully", {
-                            peerId: fromPeerId,
-                            newTrackMuted: freshVideoTrack.muted,
-                          });
-
-                          // Also update our local stream reference
-                          const oldTrack =
-                            this.localStream?.getVideoTracks()[0];
-                          if (oldTrack && this.localStream) {
-                            this.localStream.removeTrack(oldTrack);
-                            oldTrack.stop();
-                            this.localStream.addTrack(freshVideoTrack);
-                          }
-                        } catch (replaceErr) {
-                          log("MSG", "❌ Failed to replace video track", {
-                            peerId: fromPeerId,
-                            error: (replaceErr as Error).message,
-                          });
-                          // Stop the new track since we couldn't use it
-                          freshVideoTrack.stop();
-                        }
-                      }
-                    })
-                    .catch((err) => {
-                      log("MSG", "❌ Failed to get fresh video track", {
-                        peerId: fromPeerId,
-                        error: err.message,
-                      });
-
-                      // Fallback: try to toggle the existing track
-                      log("MSG", "🔄 Fallback: toggling existing video track", {
-                        peerId: fromPeerId,
-                      });
-                      const wasEnabled = currentVideoTrack.enabled;
-                      currentVideoTrack.enabled = false;
-                      setTimeout(() => {
-                        currentVideoTrack.enabled = wasEnabled;
-                        log("MSG", "🔄 Video track toggled", {
-                          peerId: fromPeerId,
-                          enabled: currentVideoTrack.enabled,
-                          muted: currentVideoTrack.muted,
-                        });
-                      }, 100);
-                    });
-                } else {
-                  log("MSG", "⚠️ No video sender found", {
-                    peerId: fromPeerId,
-                  });
-                }
-              } else {
-                log("MSG", "⚠️ No video track in local stream", {
-                  peerId: fromPeerId,
-                });
-              }
-            } else {
-              log("MSG", "⚠️ Peer connection not in valid state for refresh", {
-                peerId: fromPeerId,
-                connectionState: refreshPc?.connectionState,
-                iceConnectionState: refreshPc?.iceConnectionState,
-              });
-            }
-          }
-        } else {
-          // Normal stream-ready handling
-          if (
-            !this.mediaConnections.has(fromPeerId) &&
-            !this.pendingMediaConnections.has(fromPeerId)
-          ) {
-            if (this.localStream) {
-              log("MSG", "Initiating media connection after stream-ready", {
-                peerId: fromPeerId,
-              });
-              this.initiateMediaConnection(fromPeerId, this.localStream);
-            }
-          }
-        }
+        this.handleStreamReadyMessage(message, fromPeerId);
         break;
 
-      case "ping": {
-        // Respond to ping with pong
-        const pingId = message.data?.pingId;
-        if (pingId) {
-          this.sendMessage(fromPeerId, {
-            type: "pong",
-            data: { pingId },
-            senderId: this.myId,
-            timestamp: Date.now(),
-          });
-        }
+      case "ping":
+        this.handlePingMessage(message, fromPeerId);
         break;
-      }
 
-      case "pong": {
-        // Handle pong response
-        const pongPingId = message.data?.pingId;
-        if (pongPingId) {
-          this.handlePong(fromPeerId, pongPingId);
-        }
+      case "pong":
+        this.handlePongMessage(message, fromPeerId);
         break;
-      }
 
-      case "ice-candidate": {
-        // CRITICAL FIX: Receive ICE candidate from peer and add it to the peer connection
-        // Queue candidates if remote description is not yet set
-        log("ICE", "📥 Received ICE candidate via data channel", {
-          peerId: fromPeerId,
-          candidate: message.data?.candidate?.substring(0, 50),
-        });
-
-        const candidateInit: RTCIceCandidateInit = {
-          candidate: message.data.candidate,
-          sdpMid: message.data.sdpMid,
-          sdpMLineIndex: message.data.sdpMLineIndex,
-          usernameFragment: message.data.usernameFragment,
-        };
-
-        // Find the media connection for this peer
-        const mediaConnForIce =
-          this.mediaConnections.get(fromPeerId) ||
-          this.pendingMediaConnections.get(fromPeerId);
-        if (mediaConnForIce) {
-          const pcForIce = (mediaConnForIce as any)
-            .peerConnection as RTCPeerConnection;
-          if (pcForIce && pcForIce.signalingState !== "closed") {
-            // CRITICAL: Check if remote description is set
-            // If not, queue the candidate for later
-            if (!pcForIce.remoteDescription) {
-              log(
-                "ICE",
-                "⏳ Queuing ICE candidate - remote description not yet set",
-                {
-                  peerId: fromPeerId,
-                  signalingState: pcForIce.signalingState,
-                },
-              );
-
-              // Add to queue
-              if (!this.pendingIceCandidates.has(fromPeerId)) {
-                this.pendingIceCandidates.set(fromPeerId, []);
-              }
-              this.pendingIceCandidates.get(fromPeerId)!.push(candidateInit);
-            } else {
-              // Remote description is set, add candidate immediately
-              try {
-                const iceCandidate = new RTCIceCandidate(candidateInit);
-
-                pcForIce
-                  .addIceCandidate(iceCandidate)
-                  .then(() => {
-                    log("ICE", "✅ ICE candidate added successfully", {
-                      peerId: fromPeerId,
-                      iceConnectionState: pcForIce.iceConnectionState,
-                      connectionState: pcForIce.connectionState,
-                    });
-                  })
-                  .catch((err) => {
-                    log("ICE", "❌ Failed to add ICE candidate", {
-                      peerId: fromPeerId,
-                      error: err.message,
-                      signalingState: pcForIce.signalingState,
-                      hasRemoteDesc: !!pcForIce.remoteDescription,
-                    });
-                  });
-              } catch (err) {
-                log("ICE", "❌ Error creating ICE candidate", {
-                  peerId: fromPeerId,
-                  error: (err as Error).message,
-                });
-              }
-            }
-          } else {
-            log(
-              "ICE",
-              "⚠️ Cannot add ICE candidate - peer connection not ready",
-              {
-                peerId: fromPeerId,
-                hasPc: !!pcForIce,
-                signalingState: pcForIce?.signalingState,
-              },
-            );
-            // Queue for later
-            if (!this.pendingIceCandidates.has(fromPeerId)) {
-              this.pendingIceCandidates.set(fromPeerId, []);
-            }
-            this.pendingIceCandidates.get(fromPeerId)!.push(candidateInit);
-          }
-        } else {
-          log("ICE", "⏳ Queuing ICE candidate - no media connection yet", {
-            peerId: fromPeerId,
-            hasMediaConn: this.mediaConnections.has(fromPeerId),
-            hasPendingMediaConn: this.pendingMediaConnections.has(fromPeerId),
-          });
-          // Queue for later when media connection is established
-          if (!this.pendingIceCandidates.has(fromPeerId)) {
-            this.pendingIceCandidates.set(fromPeerId, []);
-          }
-          this.pendingIceCandidates.get(fromPeerId)!.push(candidateInit);
-        }
+      case "ice-candidate":
+        this.handleIceCandidateMessage(message, fromPeerId);
         break;
-      }
 
       default:
         // Forward other messages to the application
         this.onMessageCallback?.(message);
         break;
     }
+  }
+
+  private handleRoomFullMessage(fromPeerId: string) {
+    log("MSG", "🚫 Room is full");
+    this.onRoomFullCallback?.();
+    this.handlePeerDisconnection(fromPeerId);
+  }
+
+  private handlePeerInfoMessage(message: P2PMessage, fromPeerId: string) {
+    log("MSG", "👤 Received peer-info", {
+      from: fromPeerId,
+      name: message.data.name,
+      hasStream: message.data.hasStream,
+      isHost: this.isHost,
+      currentPeersCount: this.peers.size,
+    });
+
+    // Register the peer
+    this.peers.set(fromPeerId, {
+      id: fromPeerId,
+      name: message.data.name,
+      isHost: message.data.isHost || false,
+      joinedAt: Date.now(),
+    });
+
+    log("MSG", "✅ Peer registered", {
+      peerId: fromPeerId,
+      totalPeers: this.peers.size,
+      allPeerIds: Array.from(this.peers.keys()),
+    });
+
+    // If host, notify all other participants AND initiate media call
+    if (this.isHost) {
+      this.handleHostPeerInfoProcessing(fromPeerId);
+    }
+
+    log("MSG", "🔔 Calling onPeerConnectedCallback", {
+      peerId: fromPeerId,
+      name: message.data.name,
+    });
+    this.onPeerConnectedCallback?.(fromPeerId, message.data);
+  }
+
+  private handleHostPeerInfoProcessing(fromPeerId: string) {
+    log("MSG", "📢 HOST: Broadcasting peer-joined to other participants");
+    const peerJoinedMessage: P2PMessage = {
+      type: "peer-joined",
+      data: this.peers.get(fromPeerId),
+      senderId: this.myId,
+      timestamp: Date.now(),
+    };
+
+    this.broadcast(peerJoinedMessage, fromPeerId);
+
+    // NOTE: Host media call is now initiated in connectToPeer() when data connection opens
+    // This prevents duplicate calls and race conditions
+    log(
+      "MSG",
+      "📋 HOST: Media call will be initiated from data connection handler",
+      {
+        peerId: fromPeerId,
+        hasMediaConnection: this.mediaConnections.has(fromPeerId),
+        hasPendingMediaConnection:
+          this.pendingMediaConnections.has(fromPeerId),
+      },
+    );
+  }
+
+  private handlePeerListMessage(message: P2PMessage, fromPeerId: string) {
+    // Receive participant list and connect to them
+    const peerList = message.data as PeerInfo[];
+    log("MSG", "📋 Received peer-list", {
+      count: peerList.length,
+      peers: peerList.map((p) => ({ id: p.id, name: p.name })),
+      fromPeerId,
+      myId: this.myId,
+    });
+
+    // CRITICAL FIX: First, ensure the host (sender of peer-list) is registered
+    this.ensureHostRegistered(fromPeerId, peerList);
+
+    // Process other peers in the list
+    peerList.forEach((peer) => {
+      this.processPeerFromList(peer, fromPeerId);
+    });
+
+    log("MSG", "📋 Peer-list processing complete", {
+      totalPeers: this.peers.size,
+      peerIds: Array.from(this.peers.keys()),
+    });
+  }
+
+  private ensureHostRegistered(hostId: string, peerList: PeerInfo[]) {
+    if (!this.peers.has(hostId)) {
+      // Find host info in the peer list
+      const hostInfo = peerList.find((p) => p.id === hostId);
+      if (hostInfo) {
+        log("MSG", "👑 Registering HOST from peer-list", {
+          hostId: hostId,
+          hostName: hostInfo.name,
+        });
+        this.peers.set(hostId, hostInfo);
+        this.onPeerConnectedCallback?.(hostId, hostInfo);
+      } else {
+        // Host not in list (shouldn't happen, but handle it)
+        log("MSG", "⚠️ Host not found in peer-list, creating entry", {
+          fromPeerId: hostId,
+        });
+        const hostEntry: PeerInfo = {
+          id: hostId,
+          name: "Host",
+          isHost: true,
+          joinedAt: Date.now(),
+        };
+        this.peers.set(hostId, hostEntry);
+        this.onPeerConnectedCallback?.(hostId, hostEntry);
+      }
+    }
+  }
+
+  private processPeerFromList(peer: PeerInfo, hostId: string) {
+    log("MSG", "🔍 Processing peer from list", {
+      peerId: peer.id,
+      peerName: peer.name,
+      isMyself: peer.id === this.myId,
+      isFromPeer: peer.id === hostId,
+      alreadyInPeers: this.peers.has(peer.id),
+      alreadyConnected: this.dataConnections.has(peer.id),
+    });
+
+    // Skip ourselves
+    if (peer.id === this.myId) {
+      log("MSG", "⏭️ Skipping self", { peerId: peer.id });
+      return;
+    }
+
+    // Skip the host (already handled above)
+    if (peer.id === hostId) {
+      log("MSG", "⏭️ Skipping host (already registered)", {
+        peerId: peer.id,
+      });
+      return;
+    }
+
+    // Add other peers to our internal list
+    if (!this.peers.has(peer.id)) {
+      this.peers.set(peer.id, peer);
+      log("MSG", "✅ Peer added to list", {
+        peerId: peer.id,
+        totalPeers: this.peers.size,
+      });
+
+      // Notify callback that this peer is connected (for UI update)
+      log(
+        "MSG",
+        "🔔 Calling onPeerConnectedCallback for peer from list",
+        { peerId: peer.id },
+      );
+      this.onPeerConnectedCallback?.(peer.id, peer);
+    }
+
+    // Connect to other participants (not the host we're already connected to)
+    if (!this.dataConnections.has(peer.id)) {
+      log("MSG", "🔗 Connecting to peer from list", { peerId: peer.id });
+      setTimeout(
+        () => this.connectToPeer(peer.id, this.localStream),
+        500,
+      );
+    }
+  }
+
+  private handlePeerJoinedMessage(message: P2PMessage) {
+    // A new participant joined
+    const newPeer = message.data as PeerInfo;
+    log("MSG", "🆕 New peer joined notification", {
+      peerId: newPeer.id,
+      name: newPeer.name,
+      isMyself: newPeer.id === this.myId,
+      alreadyConnected: this.dataConnections.has(newPeer.id),
+      alreadyInPeers: this.peers.has(newPeer.id),
+    });
+
+    if (newPeer.id !== this.myId) {
+      // Add to peers map if not already there
+      if (!this.peers.has(newPeer.id)) {
+        this.peers.set(newPeer.id, newPeer);
+        log("MSG", "✅ New peer added to peers map", {
+          peerId: newPeer.id,
+          totalPeers: this.peers.size,
+        });
+
+        // CRITICAL: Notify UI about the new peer
+        log("MSG", "🔔 Calling onPeerConnectedCallback for new peer", {
+          peerId: newPeer.id,
+          name: newPeer.name,
+        });
+        this.onPeerConnectedCallback?.(newPeer.id, newPeer);
+      }
+
+      // Connect to new participant if not already connected
+      if (!this.dataConnections.has(newPeer.id)) {
+        log("MSG", "🔗 Connecting to new peer", { peerId: newPeer.id });
+        // Connect to new participant with local stream
+        setTimeout(
+          () => this.connectToPeer(newPeer.id, this.localStream),
+          500,
+        );
+      }
+    }
+  }
+
+  private handlePeerLeftMessage(fromPeerId: string) {
+    log("MSG", "Peer left", { peerId: fromPeerId });
+    this.peers.delete(fromPeerId);
+    this.connectionStates.delete(fromPeerId);
+    this.iceConnectionStates.delete(fromPeerId);
+    this.onPeerDisconnectedCallback?.(fromPeerId);
+  }
+
+  private handleStreamReadyMessage(message: P2PMessage, fromPeerId: string) {
+    // Peer's stream is ready, initiate media connection if we don't have one
+    log("MSG", "Peer stream ready", {
+      peerId: fromPeerId,
+      data: message.data,
+    });
+
+    // CRITICAL FIX: If peer is requesting a stream refresh, re-send our video track
+    if (message.data?.requestRefresh) {
+      this.handleStreamRefreshRequest(fromPeerId);
+    } else {
+      // Normal stream-ready handling
+      if (
+        !this.mediaConnections.has(fromPeerId) &&
+        !this.pendingMediaConnections.has(fromPeerId)
+      ) {
+        if (this.localStream) {
+          log("MSG", "Initiating media connection after stream-ready", {
+            peerId: fromPeerId,
+          });
+          this.initiateMediaConnection(fromPeerId, this.localStream);
+        }
+      }
+    }
+  }
+
+  private handleStreamRefreshRequest(fromPeerId: string) {
+    log(
+      "MSG",
+      "🔄 Peer requested stream refresh - re-sending video track",
+      { peerId: fromPeerId },
+    );
+
+    // Get the media connection for this peer
+    const refreshMediaConn = this.mediaConnections.get(fromPeerId);
+    if (refreshMediaConn && this.localStream) {
+      const refreshPc = (refreshMediaConn as any)
+        .peerConnection as RTCPeerConnection;
+      // Accept more connection states - the connection might still be establishing
+      if (
+        refreshPc &&
+        (refreshPc.connectionState === "connected" ||
+          refreshPc.connectionState === "connecting" ||
+          refreshPc.iceConnectionState === "connected" ||
+          refreshPc.iceConnectionState === "checking")
+      ) {
+        this.refreshVideoTrack(refreshPc, fromPeerId);
+      } else {
+        log("MSG", "⚠️ Peer connection not in valid state for refresh", {
+          peerId: fromPeerId,
+          connectionState: refreshPc?.connectionState,
+          iceConnectionState: refreshPc?.iceConnectionState,
+        });
+      }
+    }
+  }
+
+  private refreshVideoTrack(refreshPc: RTCPeerConnection, fromPeerId: string) {
+    const currentVideoTrack = this.localStream?.getVideoTracks()[0];
+    if (currentVideoTrack) {
+      log("MSG", "📹 Refreshing video track", {
+        peerId: fromPeerId,
+        trackId: currentVideoTrack.id,
+        enabled: currentVideoTrack.enabled,
+        muted: currentVideoTrack.muted,
+        readyState: currentVideoTrack.readyState,
+        connectionState: refreshPc.connectionState,
+        iceConnectionState: refreshPc.iceConnectionState,
+      });
+
+      // Try to replace the video track to force a refresh
+      const refreshVideoSender = refreshPc
+        .getSenders()
+        .find((s) => s.track?.kind === "video");
+      if (refreshVideoSender) {
+        this.replaceVideoSenderTrack(refreshVideoSender, fromPeerId, currentVideoTrack);
+      } else {
+        log("MSG", "⚠️ No video sender found", {
+          peerId: fromPeerId,
+        });
+      }
+    } else {
+      log("MSG", "⚠️ No video track in local stream", {
+        peerId: fromPeerId,
+      });
+    }
+  }
+
+  private replaceVideoSenderTrack(refreshVideoSender: RTCRtpSender, fromPeerId: string, currentVideoTrack: MediaStreamTrack) {
+    // First, try to get a fresh video track
+    navigator.mediaDevices
+      .getUserMedia({
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: "user",
+        },
+      })
+      .then(async (freshStream) => {
+        const freshVideoTrack = freshStream.getVideoTracks()[0];
+        if (freshVideoTrack) {
+          log("MSG", "✅ Got fresh video track for refresh", {
+            peerId: fromPeerId,
+            newTrackId: freshVideoTrack.id,
+            muted: freshVideoTrack.muted,
+            enabled: freshVideoTrack.enabled,
+            readyState: freshVideoTrack.readyState,
+          });
+
+          // CRITICAL FIX: Wait for the track to unmute if needed
+          if (freshVideoTrack.muted) {
+            await this.waitForTrackUnmute(freshVideoTrack, fromPeerId, "refresh");
+          }
+
+          // Now replace the track in the sender
+          try {
+            await refreshVideoSender.replaceTrack(
+              freshVideoTrack,
+            );
+            log("MSG", "✅ Video track replaced successfully", {
+              peerId: fromPeerId,
+              newTrackMuted: freshVideoTrack.muted,
+            });
+
+            // Also update our local stream reference
+            const oldTrack =
+              this.localStream?.getVideoTracks()[0];
+            if (oldTrack && this.localStream) {
+              this.localStream.removeTrack(oldTrack);
+              oldTrack.stop();
+              this.localStream.addTrack(freshVideoTrack);
+            }
+          } catch (replaceErr) {
+            log("MSG", "❌ Failed to replace video track", {
+              peerId: fromPeerId,
+              error: (replaceErr as Error).message,
+            });
+            // Stop the new track since we couldn't use it
+            freshVideoTrack.stop();
+          }
+        }
+      })
+      .catch((err) => {
+        log("MSG", "❌ Failed to get fresh video track", {
+          peerId: fromPeerId,
+          error: err.message,
+        });
+
+        // Fallback: try to toggle the existing track
+        log("MSG", "🔄 Fallback: toggling existing video track", {
+          peerId: fromPeerId,
+        });
+        const wasEnabled = currentVideoTrack.enabled;
+        currentVideoTrack.enabled = false;
+        setTimeout(() => {
+          currentVideoTrack.enabled = wasEnabled;
+          log("MSG", "🔄 Video track toggled", {
+            peerId: fromPeerId,
+            enabled: currentVideoTrack.enabled,
+            muted: currentVideoTrack.muted,
+          });
+        }, 100);
+      });
+  }
+
+  private async waitForTrackUnmute(track: MediaStreamTrack, peerId: string, context: string): Promise<void> {
+    log(
+      "MSG",
+      `⏳ Fresh video track is muted (${context}), waiting for unmute...`,
+      { peerId },
+    );
+
+    await new Promise<void>((resolve) => {
+      let resolved = false;
+
+      const onUnmute = () => {
+        if (!resolved) {
+          resolved = true;
+          track.removeEventListener(
+            "unmute",
+            onUnmute,
+          );
+          log(
+            "MSG",
+            `✅ Video track unmuted (${context}), proceeding`,
+            {
+              peerId,
+              muted: track.muted,
+            },
+          );
+          resolve();
+        }
+      };
+
+      track.addEventListener(
+        "unmute",
+        onUnmute,
+      );
+
+      // Also check immediately in case it already unmuted
+      if (!track.muted) {
+        onUnmute();
+      }
+
+      // Timeout after 3 seconds
+      setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          track.removeEventListener(
+            "unmute",
+            onUnmute,
+          );
+          log(
+            "MSG",
+            `⚠️ Timeout waiting for video track to unmute (${context}), proceeding anyway`,
+            {
+              peerId,
+              muted: track.muted,
+            },
+          );
+          resolve();
+        }
+      }, 3000);
+    });
+  }
+
+  private handlePingMessage(message: P2PMessage, fromPeerId: string) {
+    // Respond to ping with pong
+    const pingId = message.data?.pingId;
+    if (pingId) {
+      this.sendMessage(fromPeerId, {
+        type: "pong",
+        data: { pingId },
+        senderId: this.myId,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  private handlePongMessage(message: P2PMessage, fromPeerId: string) {
+    // Handle pong response
+    const pongPingId = message.data?.pingId;
+    if (pongPingId) {
+      this.handlePong(fromPeerId, pongPingId);
+    }
+  }
+
+  private handleIceCandidateMessage(message: P2PMessage, fromPeerId: string) {
+    // CRITICAL FIX: Receive ICE candidate from peer and add it to the peer connection
+    // Queue candidates if remote description is not yet set
+    log("ICE", "📥 Received ICE candidate via data channel", {
+      peerId: fromPeerId,
+      candidate: message.data?.candidate?.substring(0, 50),
+    });
+
+    const candidateInit: RTCIceCandidateInit = {
+      candidate: message.data.candidate,
+      sdpMid: message.data.sdpMid,
+      sdpMLineIndex: message.data.sdpMLineIndex,
+      usernameFragment: message.data.usernameFragment,
+    };
+
+    // Find the media connection for this peer
+    const mediaConnForIce =
+      this.mediaConnections.get(fromPeerId) ||
+      this.pendingMediaConnections.get(fromPeerId);
+    
+    if (mediaConnForIce) {
+      this.addIceCandidateToConnection(mediaConnForIce, candidateInit, fromPeerId);
+    } else {
+      log("ICE", "⏳ Queuing ICE candidate - no media connection yet", {
+        peerId: fromPeerId,
+        hasMediaConn: this.mediaConnections.has(fromPeerId),
+        hasPendingMediaConn: this.pendingMediaConnections.has(fromPeerId),
+      });
+      // Queue for later when media connection is established
+      this.queueIceCandidate(candidateInit, fromPeerId);
+    }
+  }
+
+  private addIceCandidateToConnection(mediaConn: MediaConnection, candidateInit: RTCIceCandidateInit, fromPeerId: string) {
+    const pcForIce = (mediaConn as any)
+      .peerConnection as RTCPeerConnection;
+    
+    if (pcForIce && pcForIce.signalingState !== "closed") {
+      // CRITICAL: Check if remote description is set
+      // If not, queue the candidate for later
+      if (!pcForIce.remoteDescription) {
+        log(
+          "ICE",
+          "⏳ Queuing ICE candidate - remote description not yet set",
+          {
+            peerId: fromPeerId,
+            signalingState: pcForIce.signalingState,
+          },
+        );
+
+        this.queueIceCandidate(candidateInit, fromPeerId);
+      } else {
+        // Remote description is set, add candidate immediately
+        this.addIceCandidateToPc(pcForIce, candidateInit, fromPeerId);
+      }
+    } else {
+      log(
+        "ICE",
+        "⚠️ Cannot add ICE candidate - peer connection not ready",
+        {
+          peerId: fromPeerId,
+          hasPc: !!pcForIce,
+          signalingState: pcForIce?.signalingState,
+        },
+      );
+      // Queue for later
+      this.queueIceCandidate(candidateInit, fromPeerId);
+    }
+  }
+
+  private addIceCandidateToPc(pc: RTCPeerConnection, candidateInit: RTCIceCandidateInit, fromPeerId: string) {
+    try {
+      const iceCandidate = new RTCIceCandidate(candidateInit);
+
+      pc
+        .addIceCandidate(iceCandidate)
+        .then(() => {
+          log("ICE", "✅ ICE candidate added successfully", {
+            peerId: fromPeerId,
+            iceConnectionState: pc.iceConnectionState,
+            connectionState: pc.connectionState,
+          });
+        })
+        .catch((err) => {
+          log("ICE", "❌ Failed to add ICE candidate", {
+            peerId: fromPeerId,
+            error: err.message,
+            signalingState: pc.signalingState,
+            hasRemoteDesc: !!pc.remoteDescription,
+          });
+        });
+    } catch (err) {
+      log("ICE", "❌ Error creating ICE candidate", {
+        peerId: fromPeerId,
+        error: (err as Error).message,
+      });
+    }
+  }
+
+  private queueIceCandidate(candidateInit: RTCIceCandidateInit, fromPeerId: string) {
+    if (!this.pendingIceCandidates.has(fromPeerId)) {
+      this.pendingIceCandidates.set(fromPeerId, []);
+    }
+    this.pendingIceCandidates.get(fromPeerId)!.push(candidateInit);
   }
 
   /**

@@ -13,69 +13,9 @@ import {
 } from "@/utils/videoConstraints";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
 import { withTimeoutRace } from "@/utils/retry";
+import { captureMediaStream, getCameraLabel, isBackCamera, isAndroid, isMobileDevice } from "@/utils/mediaHelpers";
 
-// Detect if device is Android
-const isAndroid = () => /Android/i.test(navigator.userAgent);
 
-// Detect if device is mobile
-const isMobileDevice = () => {
-  return (
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-      navigator.userAgent,
-    ) || "ontouchstart" in window
-  );
-};
-
-// Helper function to get French camera label
-const getCameraLabel = (device: MediaDeviceInfo): string => {
-  const label = device.label.toLowerCase();
-
-  // Detect front camera
-  if (
-    label.includes("front") ||
-    label.includes("user") ||
-    label.includes("avant") ||
-    label.includes("facing front")
-  ) {
-    return "Caméra avant";
-  }
-
-  // Detect back camera
-  if (
-    label.includes("back") ||
-    label.includes("environment") ||
-    label.includes("arrière") ||
-    label.includes("facing back") ||
-    label.includes("rear")
-  ) {
-    return "Caméra arrière";
-  }
-
-  // If label contains camera number, try to determine type
-  // Usually camera 0 is back, camera 1 is front on Android
-  const cameraMatch = label.match(/camera\s*(\d+)/i);
-  if (cameraMatch) {
-    const cameraNum = parseInt(cameraMatch[1], 10);
-    if (cameraNum === 0) return "Caméra arrière";
-    if (cameraNum === 1) return "Caméra avant";
-  }
-
-  // Fallback: use original label or generic name
-  return device.label || `Caméra ${device.deviceId.slice(0, 8)}`;
-};
-
-// Helper function to detect if a device is the back camera
-const isBackCamera = (device: MediaDeviceInfo): boolean => {
-  const label = device.label.toLowerCase();
-  return (
-    label.includes("back") ||
-    label.includes("environment") ||
-    label.includes("arrière") ||
-    label.includes("facing back") ||
-    label.includes("rear") ||
-    label.includes("camera 0")
-  );
-};
 
 export function PreJoinPage() {
   const navigate = useNavigate();
@@ -207,108 +147,7 @@ export function PreJoinPage() {
     }
   };
 
-  // Get camera stream with facingMode support for back camera
-  const getCameraStream = async (
-    deviceId: string | null,
-    devices: MediaDeviceInfo[],
-  ): Promise<MediaStream | null> => {
-    // Use optimal audio constraints from utility
-    const audioConstraints: MediaTrackConstraints = {
-      ...getOptimalAudioConstraints(),
-    };
 
-    if (selectedAudioDevice) {
-      audioConstraints.deviceId = { exact: selectedAudioDevice };
-    }
-
-    // If a specific device is selected, check if it's a back camera
-    if (deviceId) {
-      const selectedDevice = devices.find((d) => d.deviceId === deviceId);
-      const isBack = selectedDevice ? isBackCamera(selectedDevice) : false;
-
-      console.log("getCameraStream called with deviceId:", deviceId);
-      console.log("Selected device:", selectedDevice?.label);
-      console.log("Is back camera:", isBack);
-
-      // Get optimal video constraints based on device type and facing mode
-      const facingMode = isBack ? "environment" : "user";
-      const optimalVideoConstraints = getOptimalVideoConstraints(
-        facingMode,
-        false,
-        deviceId,
-      );
-
-      if (isBack) {
-        // For back camera, ALWAYS use deviceId directly - this is the most reliable method
-        // facingMode can be unreliable on many Android devices
-        try {
-          console.log("Trying back camera with deviceId: exact", deviceId);
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: optimalVideoConstraints,
-            audio: audioConstraints,
-          });
-          console.log("Back camera stream obtained successfully");
-          return stream;
-        } catch (deviceIdError) {
-          console.log(
-            "deviceId exact failed, trying facingMode environment:",
-            deviceIdError,
-          );
-          // Fallback: try facingMode environment without deviceId
-          try {
-            const fallbackConstraints = getOptimalVideoConstraints(
-              "environment",
-              true,
-            );
-            const stream = await navigator.mediaDevices.getUserMedia({
-              video: fallbackConstraints,
-              audio: audioConstraints,
-            });
-            console.log(
-              "Back camera stream obtained with facingMode environment",
-            );
-            return stream;
-          } catch (envError) {
-            console.error("All back camera methods failed:", envError);
-            throw envError;
-          }
-        }
-      } else {
-        // For front camera, use deviceId directly first, then fallback to facingMode
-        try {
-          console.log("Trying front camera with deviceId: exact", deviceId);
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: optimalVideoConstraints,
-            audio: audioConstraints,
-          });
-          console.log("Front camera stream obtained successfully");
-          return stream;
-        } catch (deviceIdError) {
-          console.log(
-            "deviceId exact failed, trying facingMode user:",
-            deviceIdError,
-          );
-          // Fallback to facingMode user without deviceId
-          const fallbackConstraints = getOptimalVideoConstraints("user", false);
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: fallbackConstraints,
-            audio: audioConstraints,
-          });
-          console.log("Front camera stream obtained with facingMode user");
-          return stream;
-        }
-      }
-    }
-
-    // No specific device selected, use optimal constraints based on device type
-    const videoConstraints = getOptimalVideoConstraints("user", false);
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: videoConstraints,
-      audio: audioConstraints,
-    });
-    return stream;
-  };
 
   const initializeMedia = async (deviceIdOverride?: string, retryCount: number = 0) => {
     try {
@@ -318,91 +157,46 @@ export function PreJoinPage() {
         return;
       }
 
-      // Get current device list for camera detection
-      const deviceList = await navigator.mediaDevices.enumerateDevices();
-      const videoDeviceId = deviceIdOverride || selectedVideoDevice || null;
+      const videoDeviceId = deviceIdOverride || selectedVideoDevice || undefined;
+      
+      // Determine facing mode based on device ID if possible
+      let facingMode: "user" | "environment" = "user";
+      if (videoDeviceId) {
+          const device = devices.find(d => d.deviceId === videoDeviceId);
+          if (device && isBackCamera(device)) {
+              facingMode = "environment";
+          }
+      }
 
-      // Add timeout to prevent hanging
-      const mediaStream = await withTimeoutRace(
-        getCameraStream(videoDeviceId, deviceList),
-        15000, // 15 second timeout
-        "Media initialization timeout"
+      const { stream, error } = await captureMediaStream(
+          true, // audioOn
+          true, // videoOn
+          "auto", // videoQuality
+          facingMode,
+          selectedAudioDevice || undefined,
+          videoDeviceId,
+          retryCount
       );
 
-      if (mediaStream) {
-        setStream(mediaStream);
+      if (stream) {
+        setStream(stream);
         setPermissionsGranted(true);
         setError(null);
-        mediaRetryCount.current = 0; // Reset retry count on success
+        mediaRetryCount.current = 0;
+      } else if (error) {
+          setError(error);
+          // Handle retries if needed (captureMediaStream already handles some retries)
+          if (error.includes("occupée") || error.includes("timeout") || error.includes("interrompue") || error.includes("Erreur")) {
+             if (retryCount < maxMediaRetries) {
+                setTimeout(() => {
+                    initializeMedia(deviceIdOverride, retryCount + 1);
+                }, 1000 * (retryCount + 1));
+             }
+          }
       }
     } catch (err: any) {
-      console.error("Media initialization error:", err);
-
-      // Handle specific error types with retry logic
-      if (err.name === "NotAllowedError") {
-        setError(
-          "Permissions refusées. Autorisez l'accès à la caméra et au microphone.",
-        );
-        setPermissionsGranted(false);
-      } else if (err.name === "NotFoundError") {
-        setError("Aucune caméra ou microphone détecté.");
-      } else if (err.name === "OverconstrainedError") {
-        // Try with less restrictive constraints
-        try {
-          const fallbackStream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: true,
-          });
-          setStream(fallbackStream);
-          setPermissionsGranted(true);
-          setError(null);
-          mediaRetryCount.current = 0;
-        } catch (fallbackErr) {
-          setError("Erreur d'accès aux périphériques multimédia.");
-        }
-      } else if (err.name === "NotReadableError") {
-        // Device is in use - retry with backoff
-        if (retryCount < maxMediaRetries) {
-          setError(`Caméra occupée, nouvelle tentative ${retryCount + 1}/${maxMediaRetries}...`);
-          setTimeout(() => {
-            initializeMedia(deviceIdOverride, retryCount + 1);
-          }, 1000 * (retryCount + 1));
-          return;
-        }
-        setError(
-          "La caméra ou le microphone est utilisé par une autre application.",
-        );
-      } else if (err.message?.includes("timeout")) {
-        // Timeout error - retry
-        if (retryCount < maxMediaRetries) {
-          setError(`Délai dépassé, nouvelle tentative ${retryCount + 1}/${maxMediaRetries}...`);
-          setTimeout(() => {
-            initializeMedia(deviceIdOverride, retryCount + 1);
-          }, 1000 * (retryCount + 1));
-          return;
-        }
-        setError("La caméra ne répond pas. Vérifiez vos périphériques.");
-      } else if (err.name === "AbortError") {
-        // Request aborted - retry on mobile
-        if (isAndroid() && retryCount < maxMediaRetries) {
-          setError(`Initialisation interrompue, nouvelle tentative ${retryCount + 1}/${maxMediaRetries}...`);
-          setTimeout(() => {
-            initializeMedia(deviceIdOverride, retryCount + 1);
-          }, 800);
-          return;
-        }
-        setError("Initialisation de la caméra annulée.");
-      } else {
-        // Generic error - retry on mobile
-        if (isAndroid() && retryCount < maxMediaRetries) {
-          setError(`Erreur, nouvelle tentative ${retryCount + 1}/${maxMediaRetries}...`);
-          setTimeout(() => {
-            initializeMedia(deviceIdOverride, retryCount + 1);
-          }, 800);
-          return;
-        }
-        setError("Erreur d'accès aux périphériques multimédia.");
-      }
+        console.error("Media initialization error:", err);
+        setError("Erreur inattendue lors de l'initialisation média.");
     }
   };
 

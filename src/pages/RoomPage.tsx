@@ -35,6 +35,7 @@ import {
   getSavedVideoQuality,
   saveVideoQuality,
 } from "@/utils/videoConstraints";
+import { captureMediaStream, isAndroid, isMobileDevice, restartVideoTrack } from "@/utils/mediaHelpers";
 import { useNetworkStatus, useReconnection } from "@/hooks/useNetworkStatus";
 import { useRetry } from "@/hooks/useRetry";
 import { withTimeoutRace } from "@/utils/retry";
@@ -47,68 +48,7 @@ interface LocationState {
   hostPeerId?: string;
 }
 
-// Detect if device is Android
-const isAndroid = () => /Android/i.test(navigator.userAgent);
 
-// Detect if device is mobile
-const isMobileDevice = () => {
-  return (
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(
-      navigator.userAgent,
-    ) || "ontouchstart" in window
-  );
-};
-
-// Adaptive video constraints for better performance
-// Now using the centralized utility for optimal constraints
-const getVideoConstraints = (
-  facingMode: "user" | "environment" = "user",
-  useExact: boolean = false,
-): MediaTrackConstraints => {
-  return getOptimalVideoConstraints(facingMode, useExact);
-};
-
-// Get camera stream with facingMode fallback support
-const getCameraStreamWithFallback = async (
-  facingMode: "user" | "environment",
-  audioConstraints: MediaTrackConstraints,
-): Promise<MediaStream> => {
-  const optimalConstraints = getOptimalVideoConstraints(facingMode, true);
-
-  // Try with exact facingMode first (most reliable for back camera)
-  try {
-    console.log(`Trying camera with facingMode: { exact: '${facingMode}' }`);
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: optimalConstraints,
-      audio: audioConstraints,
-    });
-    return stream;
-  } catch (exactError) {
-    console.log(`exact ${facingMode} failed:`, exactError);
-
-    // Fallback: try with ideal instead of exact
-    try {
-      const idealConstraints = getOptimalVideoConstraints(facingMode, false);
-      console.log(`Trying camera with facingMode: { ideal: '${facingMode}' }`);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: idealConstraints,
-        audio: audioConstraints,
-      });
-      return stream;
-    } catch (idealError) {
-      console.log(`ideal ${facingMode} failed:`, idealError);
-
-      // Last fallback: try without exact constraint
-      const fallbackConstraints = getOptimalVideoConstraints(facingMode, false);
-      console.log(`Trying camera with facingMode: '${facingMode}'`);
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: fallbackConstraints,
-        audio: audioConstraints,
-      });
-      return stream;
-    }
-  }
-};
 
 // Participant state reducer for efficient updates
 type ParticipantAction =
@@ -347,173 +287,31 @@ export function RoomPage() {
       retryCount: number = 0,
       qualityOverride?: VideoQualityLevel,
     ): Promise<MediaStream | null> => {
-      const maxRetries = isAndroid() ? 3 : 1;
-
-      // Use the provided quality override or the current videoQuality state
       const effectiveQuality = qualityOverride ?? videoQuality;
 
-      try {
-        // Use optimal audio constraints from utility
-        const audioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
-
-        if (audioDeviceId) {
-          audioConstraints.deviceId = { exact: audioDeviceId };
-        }
-
-        // Get video constraints with the specified facing mode and quality using utility
-        const videoConstraints: MediaTrackConstraints = {
-          ...getOptimalVideoConstraints(
-            cameraFacingMode,
-            false,
-            undefined,
-            effectiveQuality,
-          ),
-        };
-
-        // If a specific device is selected, use it instead of facingMode
-        if (videoDeviceId) {
-          videoConstraints.deviceId = { exact: videoDeviceId };
-          // Remove facingMode when using specific deviceId to avoid conflicts
-          delete videoConstraints.facingMode;
-        }
-
-        // On Android, add a small delay before requesting media to ensure
-        // previous streams are fully released
-        if (isAndroid() && retryCount > 0) {
-          await new Promise((resolve) => setTimeout(resolve, 500 * retryCount));
-        }
-
-        // Add timeout to prevent hanging
-        const stream = await withTimeoutRace(
-          navigator.mediaDevices.getUserMedia({
-            video: videoConstraints,
-            audio: audioConstraints,
-          }),
-          15000, // 15 second timeout
-          "Media capture timeout"
-        );
-
-        stream.getAudioTracks().forEach((track) => (track.enabled = audioOn));
-        stream.getVideoTracks().forEach((track) => (track.enabled = videoOn));
-
-        // Clear any previous error
+      if (retryCount === 0) {
         setMediaError(null);
-        return stream;
-      } catch (error: any) {
-        console.error(
-          `Media capture error (attempt ${retryCount + 1}):`,
-          error,
-        );
-
-        if (error.name === "NotFoundError") {
-          setMediaError("Aucune caméra ou microphone détecté");
-        } else if (error.name === "NotAllowedError") {
-          // On Android, permissions might need to be re-requested
-          if (isAndroid() && retryCount < maxRetries) {
-            setMediaError("Demande de permissions...");
-            // Wait and retry
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            return captureLocalMedia(
-              audioOn,
-              videoOn,
-              audioDeviceId,
-              videoDeviceId,
-              cameraFacingMode,
-              retryCount + 1,
-            );
-          }
-          setMediaError(
-            "Permissions refusées. Veuillez autoriser l'accès à la caméra et au microphone.",
-          );
-        } else if (error.name === "NotReadableError") {
-          // Device is busy - common on Android when switching between pages
-          if (retryCount < maxRetries) {
-            setMediaError("Caméra occupée, nouvelle tentative...");
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            return captureLocalMedia(
-              audioOn,
-              videoOn,
-              audioDeviceId,
-              videoDeviceId,
-              cameraFacingMode,
-              retryCount + 1,
-            );
-          }
-          setMediaError("La caméra est utilisée par une autre application");
-        } else if (error.name === "OverconstrainedError") {
-          // If facingMode constraint fails (e.g., no back camera), try without it
-          setMediaError(
-            "Caméra non disponible, essai avec la caméra par défaut...",
-          );
-          setTimeout(() => setMediaError(null), 2000);
-          try {
-          const fallbackAudioConstraints: MediaTrackConstraints = getOptimalAudioConstraints();
-          if (audioDeviceId) {
-            fallbackAudioConstraints.deviceId = { exact: audioDeviceId };
-          }
-            const fallbackStream = await navigator.mediaDevices.getUserMedia({
-              video: true,
-              audio: fallbackAudioConstraints,
-            });
-            fallbackStream
-              .getAudioTracks()
-              .forEach((track) => (track.enabled = audioOn));
-            fallbackStream
-              .getVideoTracks()
-              .forEach((track) => (track.enabled = videoOn));
-            return fallbackStream;
-          } catch {
-            setMediaError("Erreur d'accès à la caméra");
-            return null;
-          }
-        } else if (error.name === "AbortError") {
-          // Request was aborted - retry on Android
-          if (isAndroid() && retryCount < maxRetries) {
-            setMediaError("Initialisation de la caméra...");
-            await new Promise((resolve) => setTimeout(resolve, 800));
-            return captureLocalMedia(
-              audioOn,
-              videoOn,
-              audioDeviceId,
-              videoDeviceId,
-              cameraFacingMode,
-              retryCount + 1,
-            );
-          }
-          setMediaError("Erreur d'initialisation de la caméra");
-        } else if (error.message?.includes("timeout")) {
-          // Timeout error
-          if (retryCount < maxRetries) {
-            setMediaError("Délai dépassé, nouvelle tentative...");
-            await new Promise((resolve) => setTimeout(resolve, 1000));
-            return captureLocalMedia(
-              audioOn,
-              videoOn,
-              audioDeviceId,
-              videoDeviceId,
-              cameraFacingMode,
-              retryCount + 1,
-            );
-          }
-          setMediaError("La caméra ne répond pas");
-        } else {
-          // Generic error - retry on Android
-          if (isAndroid() && retryCount < maxRetries) {
-            setMediaError("Erreur, nouvelle tentative...");
-            await new Promise((resolve) => setTimeout(resolve, 800));
-            return captureLocalMedia(
-              audioOn,
-              videoOn,
-              audioDeviceId,
-              videoDeviceId,
-              cameraFacingMode,
-              retryCount + 1,
-            );
-          }
-          setMediaError("Erreur d'accès aux périphériques");
-        }
-        return null;
       }
+
+      const { stream, error } = await captureMediaStream(
+        audioOn,
+        videoOn,
+        effectiveQuality,
+        cameraFacingMode,
+        audioDeviceId,
+        videoDeviceId,
+        retryCount,
+      );
+
+      if (error) {
+        setMediaError(error);
+        // If it's a warning (like fallback), we might still have a stream
+        if (error.includes("essai avec la caméra par défaut")) {
+          setTimeout(() => setMediaError(null), 2000);
+        }
+      }
+
+      return stream;
     },
     [videoQuality],
   );
@@ -1200,181 +998,40 @@ export function RoomPage() {
     const currentVideoTrack = stream.getVideoTracks()[0];
     const newVideoEnabled = !videoEnabled;
 
-    console.log("[toggleVideo] 🎬 Starting toggle", {
-      currentVideoEnabled: videoEnabled,
-      newVideoEnabled,
-      hasCurrentTrack: !!currentVideoTrack,
-      currentTrackEnabled: currentVideoTrack?.enabled,
-      currentTrackMuted: currentVideoTrack?.muted,
-      currentTrackReadyState: currentVideoTrack?.readyState,
-      streamId: stream.id,
-      streamVideoTracks: stream.getVideoTracks().length,
-      streamAudioTracks: stream.getAudioTracks().length,
-    });
-
     if (newVideoEnabled) {
       // Re-enable video - ALWAYS get a fresh track on mobile
-      // This is because disabled tracks on mobile often don't restart properly
-      try {
-        console.log("[toggleVideo] Getting FRESH video track for re-enable...");
+      console.log("[toggleVideo] Getting FRESH video track for re-enable...");
 
-        // Wait a bit for the camera to be released (important on mobile)
-        if (isMobileDevice()) {
-          await new Promise((resolve) => setTimeout(resolve, 300));
-        }
+      const { success, error, newStream } = await restartVideoTrack(
+        stream,
+        facingMode,
+        videoQuality,
+      );
 
-        const newStream = await navigator.mediaDevices.getUserMedia({
-          video: getOptimalVideoConstraints(
-            facingMode,
-            false,
-            undefined,
-            videoQuality,
-          ),
-        });
+      if (success && newStream) {
+        // Update refs
+        localStreamRef.current = newStream;
 
-        const newVideoTrack = newStream.getVideoTracks()[0];
-        if (newVideoTrack) {
-          console.log("[toggleVideo] Got fresh video track", {
-            trackId: newVideoTrack.id,
-            enabled: newVideoTrack.enabled,
-            muted: newVideoTrack.muted,
-            readyState: newVideoTrack.readyState,
-          });
+        // Update P2P manager
+        p2pManager.current?.updateLocalStream(newStream);
 
-          // CRITICAL: Wait for the track to unmute if needed (camera warmup)
-          if (newVideoTrack.muted) {
-            console.log(
-              "[toggleVideo] Fresh track is muted, waiting for unmute...",
-            );
-            await new Promise<void>((resolve) => {
-              let resolved = false;
-              const onUnmute = () => {
-                if (!resolved) {
-                  resolved = true;
-                  newVideoTrack.removeEventListener("unmute", onUnmute);
-                  console.log("[toggleVideo] Track unmuted!");
-                  resolve();
-                }
-              };
-              newVideoTrack.addEventListener("unmute", onUnmute);
-              if (!newVideoTrack.muted) onUnmute();
-              setTimeout(() => {
-                if (!resolved) {
-                  resolved = true;
-                  newVideoTrack.removeEventListener("unmute", onUnmute);
-                  console.log(
-                    "[toggleVideo] Timeout waiting for unmute, proceeding anyway",
-                  );
-                  resolve();
-                }
-              }, 2000);
-            });
-          }
+        setVideoEnabled(true);
+        setLocalStream(newStream);
 
-          // CRITICAL FIX: Check if there's an old stopped track in the stream
-          // If so, remove it first, then add the new one
-          const oldVideoTrack = stream.getVideoTracks()[0];
-          if (oldVideoTrack) {
-            console.log(
-              "[toggleVideo] Removing old stopped track from stream",
-              {
-                oldTrackId: oldVideoTrack.id,
-                oldTrackReadyState: oldVideoTrack.readyState,
-              },
-            );
-            stream.removeTrack(oldVideoTrack);
-            // Don't stop it again if already stopped
-            if (oldVideoTrack.readyState === "live") {
-              oldVideoTrack.stop();
-            }
-          }
-
-          // Add new video track to the stream
-          stream.addTrack(newVideoTrack);
-          console.log("[toggleVideo] ✅ Added new video track to stream", {
-            newTrackId: newVideoTrack.id,
-            newTrackEnabled: newVideoTrack.enabled,
-            newTrackMuted: newVideoTrack.muted,
-            newTrackReadyState: newVideoTrack.readyState,
-            streamVideoTracks: stream.getVideoTracks().length,
-            streamAudioTracks: stream.getAudioTracks().length,
-          });
-
-          // Update refs
-          localStreamRef.current = stream;
-
-          // CRITICAL: Log the stream state before updating P2P manager
-          console.log(
-            "[toggleVideo] 📤 About to update P2P manager with stream:",
-            {
-              streamId: stream.id,
-              videoTracks: stream.getVideoTracks().map((t) => ({
-                id: t.id,
-                enabled: t.enabled,
-                muted: t.muted,
-                readyState: t.readyState,
-              })),
-              audioTracks: stream.getAudioTracks().map((t) => ({
-                id: t.id,
-                enabled: t.enabled,
-                muted: t.muted,
-                readyState: t.readyState,
-              })),
-            },
-          );
-
-          p2pManager.current?.updateLocalStream(stream);
-          console.log("[toggleVideo] ✅ P2P manager updateLocalStream called");
-
-          // CRITICAL FIX: Set videoEnabled FIRST
-          setVideoEnabled(true);
-          console.log("[toggleVideo] ✅ videoEnabled set to true");
-
-          // CRITICAL FIX: Force React to see a new stream reference
-          // by creating a new MediaStream with the same tracks
-          // This is necessary because React's useMemo won't detect track changes
-          // on the same stream object
-          const newStreamForUI = new MediaStream(stream.getTracks());
-          localStreamRef.current = newStreamForUI;
-          setLocalStream(newStreamForUI);
-          console.log(
-            "[toggleVideo] ✅ Local stream state updated with new reference",
-            {
-              oldStreamId: stream.id,
-              newStreamId: newStreamForUI.id,
-              videoTracks: newStreamForUI.getVideoTracks().length,
-              audioTracks: newStreamForUI.getAudioTracks().length,
-            },
-          );
-
-          // Also update P2P manager with the new stream reference
-          p2pManager.current?.updateLocalStream(newStreamForUI);
-
-          console.log(
-            "[toggleVideo] Sending media-state with videoEnabled=true",
-          );
-        }
-
-        // Send media-state AFTER the track is ready and transmitted
+        // Send media-state
         p2pManager.current?.broadcast({
           type: "media-state",
           data: { audioEnabled, videoEnabled: true },
           senderId: myId,
           timestamp: Date.now(),
         } as P2PMessage);
-      } catch (error) {
+      } else {
         console.error("[toggleVideo] Error re-acquiring camera:", error);
         setMediaError("Erreur lors de la réactivation de la caméra");
         setTimeout(() => setMediaError(null), 3000);
-        return;
       }
     } else {
-      // Disable video - CRITICAL FIX: Don't remove the track from the stream!
-      // Just disable it and stop it. This keeps the WebRTC sender in place
-      // so we can use replaceTrack() when re-enabling.
-
-      // CRITICAL FIX: Send media-state FIRST before stopping the track
-      // This ensures the remote peer knows video is disabled before the track stops
+      // Disable video
       console.log(
         "[toggleVideo] 📤 Sending media-state with videoEnabled=false",
       );
@@ -1386,32 +1043,11 @@ export function RoomPage() {
       } as P2PMessage);
 
       if (currentVideoTrack) {
-        console.log("[toggleVideo] 🔴 Disabling video track", {
-          trackId: currentVideoTrack.id,
-          currentEnabled: currentVideoTrack.enabled,
-          currentMuted: currentVideoTrack.muted,
-          currentReadyState: currentVideoTrack.readyState,
-        });
-
         currentVideoTrack.enabled = false;
-        console.log("[toggleVideo] Track enabled set to false");
-
-        // Stop the track to release the camera, but DON'T remove it from the stream
-        // This keeps the WebRTC sender in place for replaceTrack() later
         currentVideoTrack.stop();
-        console.log("[toggleVideo] 🛑 Video track stopped", {
-          trackId: currentVideoTrack.id,
-          readyStateAfterStop: currentVideoTrack.readyState,
-          streamVideoTracksAfterStop: stream.getVideoTracks().length,
-          streamVideoTrackIds: stream.getVideoTracks().map((t) => t.id),
-        });
       }
 
       setVideoEnabled(false);
-      console.log("[toggleVideo] ✅ Video disabled, state updated");
-
-      // DON'T call updateLocalStream here - the track is stopped but still in the stream
-      // This preserves the WebRTC sender for when we re-enable
     }
   }, [myId, audioEnabled, videoEnabled, facingMode, videoQuality]);
 
