@@ -190,7 +190,8 @@ export function useRetry<T>(options: UseRetryOptions<T>): UseRetryState<T> & Use
 }
 
 // Re-export presets for convenience
-export { RetryPresets, RetryError };
+export { RetryPresets };
+export type { RetryError };
 
 // Re-export other hooks
 export * from './usePolling';
