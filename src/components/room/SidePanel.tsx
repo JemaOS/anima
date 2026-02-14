@@ -10,6 +10,71 @@ import {
   saveVideoQuality,
 } from "@/utils/videoConstraints";
 
+// Emoticon to emoji mapping for chat messages
+const EMOTICONS: Record<string, string> = {
+  ":)": "😊",
+  ":-)": "😊",
+  ":(": "😢",
+  ":-(": "😢",
+  ":D": "😀",
+  ":-D": "😀",
+  ";)": "😉",
+  ";-)": "😉",
+  ":P": "😛",
+  ":-P": "😛",
+  ":p": "😛",
+  ":-p": "😛",
+  ";P": "😜",
+  ";-P": "😜",
+  ";p": "😜",
+  ";-p": "😜",
+  ":O": "😮",
+  ":-O": "😮",
+  ":o": "😮",
+  ":-o": "😮",
+  ":|": "😐",
+  ":-|": "😐",
+  ":/": "😕",
+  ":-/": "😕",
+  ":*": "😘",
+  ":-*": "😘",
+  "<3": "❤️",
+  "</3": "💔",
+  ":')": "😂",
+  ":-')": "😂",
+  "xD": "😆",
+  "XD": "😆",
+  ":3": "🐱",
+  ":-3": "🐱",
+  ":>": "😊",
+  ":->": "😊",
+  ":<": "😢",
+  ":-<": "😢",
+  ":@": "😠",
+  ":-@": "😠",
+  "D:": "😧",
+  ":S": "😖",
+  ":-S": "😖",
+  ":s": "😖",
+  ":-s": "😖",
+};
+
+// Convert text emoticons to emojis
+const convertEmoticons = (text: string): string => {
+  let result = text;
+  // Sort by length (longest first) to avoid partial replacements
+  const sortedEmoticons = Object.keys(EMOTICONS).sort((a, b) => b.length - a.length);
+  for (const emoticon of sortedEmoticons) {
+    // Use regex with word boundaries to avoid replacing inside words
+    const escapedEmoticon = emoticon.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Improved regex: use capturing group for start boundary instead of lookbehind
+    // This improves compatibility and reliability
+    const regex = new RegExp(`(^|\\s)${escapedEmoticon}(?=$|\\s)`, 'g');
+    result = result.replace(regex, `$1${EMOTICONS[emoticon]}`);
+  }
+  return result;
+};
+
 // Video style types and constants
 export type VideoStyle =
   | "normal"
@@ -292,9 +357,9 @@ export function SidePanel({
         </h2>
         <button
           onClick={onClose}
-          className="w-10 h-10 rounded-full hover:bg-neutral-700 flex items-center justify-center text-neutral-400 hover:text-white transition-colors"
+          className="w-8 h-8 rounded-full hover:bg-neutral-700 active:bg-neutral-600 flex items-center justify-center text-neutral-400 hover:text-white transition-all shrink-0 focus:outline-none"
         >
-          <Icon name="close" size={24} />
+          <Icon name="close" size={20} />
         </button>
       </div>
 
@@ -324,8 +389,8 @@ export function SidePanel({
                         {formatTime(msg.timestamp)}
                       </span>
                     </div>
-                    <p className="text-sm text-neutral-200 mt-1">
-                      {msg.content}
+                    <p className="text-sm text-neutral-200 mt-1 whitespace-pre-wrap break-words">
+                      {convertEmoticons(msg.content)}
                     </p>
                   </div>
                 </div>
@@ -383,7 +448,7 @@ export function SidePanel({
                         <Icon
                           name="pan-tool"
                           size={14}
-                          className="text-warning-500"
+                          className="text-[#8f88ed]"
                         />
                       )}
                     </div>

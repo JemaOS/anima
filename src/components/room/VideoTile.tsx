@@ -111,16 +111,16 @@ const AudioIndicator = memo(function AudioIndicator({
 
   if (!audioEnabled) {
     return (
-      <span className="bg-danger-500/80 p-0.5 sm:p-1 rounded-full">
+      <div className="bg-danger-500/80 w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full">
         <Icon name="mic-off" size={size === "small" ? 10 : 14} className="text-white" />
-      </span>
+      </div>
     );
   }
 
   return (
     <div className="relative flex items-center justify-center">
       <div
-        className={`relative p-0.5 sm:p-1 rounded-full transition-all duration-150 ${
+        className={`relative flex items-center justify-center w-5 h-5 sm:w-6 sm:h-6 rounded-full transition-all duration-150 ${
           isSpeaking ? "bg-[#757aed]/90" : "bg-neutral-600/80"
         }`}
       >
@@ -221,7 +221,9 @@ export const VideoTile = memo(function VideoTile({
     }
 
     // Always set srcObject to ensure it's attached
-    video.srcObject = participant.stream;
+    if (video.srcObject !== participant.stream) {
+      video.srcObject = participant.stream;
+    }
 
     // CRITICAL FIX: For remote participants, ensure audio is NEVER muted
     if (!isLocal) {
@@ -253,6 +255,7 @@ export const VideoTile = memo(function VideoTile({
       const playWithAudio = async () => {
         try {
           video.muted = false;
+          // If video track is ended/muted, we still want to play for audio
           await video.play();
           console.log("[VideoTile] Video playing with audio enabled");
         } catch (err) {
@@ -366,6 +369,30 @@ export const VideoTile = memo(function VideoTile({
     participant.videoEnabled,
   ]);
 
+  // Monitor audio playback state, especially when video is disabled
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !participant.stream || isLocal) return;
+
+    // If video is disabled (hasVideo=false) but we have audio tracks, ensure we're playing
+    // This fixes the issue where audio stops when camera is turned off
+    if (!hasVideo && participant.stream.getAudioTracks().length > 0) {
+      const checkAndPlay = () => {
+        if (video.paused) {
+          console.log("[VideoTile] Video disabled but audio available - forcing play");
+          video.muted = false;
+          video.play().catch(e => console.warn("[VideoTile] Force play failed:", e));
+        }
+      };
+      
+      checkAndPlay();
+      
+      // Also check periodically in case it pauses
+      const interval = setInterval(checkAndPlay, 1000);
+      return () => clearInterval(interval);
+    }
+  }, [hasVideo, participant.stream, isLocal]);
+
   // Handle video element errors - mémoïsé
   const handleVideoError = useCallback(() => {
     // Video error handled silently
@@ -409,25 +436,27 @@ export const VideoTile = memo(function VideoTile({
 
   const videoClasses = useMemo(
     () =>
-      `w-full h-full object-cover bg-neutral-900 rounded-2xl ${shouldMirror ? "transform -scale-x-100" : ""}`,
+      `w-full h-full object-contain bg-neutral-900 rounded-2xl ${shouldMirror ? "transform -scale-x-100" : ""}`,
     [shouldMirror]
   );
 
   return (
     <div className={containerClasses}>
       {/* Video stream or avatar - fills the entire container */}
-      {hasVideo ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={isLocal}
-          className={videoClasses}
-          onError={handleVideoError}
-          onLoadedData={handleVideoLoaded}
-          onCanPlay={handleCanPlay}
-        />
-      ) : (
+      {/* CRITICAL FIX: Always render the video element to keep audio playing */}
+      {/* When video is disabled, we hide the video but keep the audio playing */}
+      <video
+        ref={videoRef}
+        autoPlay
+        playsInline
+        muted={isLocal}
+        className={hasVideo ? videoClasses : "absolute inset-0 w-full h-full opacity-0 pointer-events-none"}
+        onError={handleVideoError}
+        onLoadedData={handleVideoLoaded}
+        onCanPlay={handleCanPlay}
+      />
+      {/* Show avatar when video is disabled */}
+      {!hasVideo && (
         <div className="absolute inset-0 flex items-center justify-center bg-neutral-800">
           <Avatar
             name={participant.name}
@@ -453,9 +482,9 @@ export const VideoTile = memo(function VideoTile({
       {/* Hand raised indicator */}
       {participant.handRaised && (
         <div
-          className={`absolute ${!isLocal && participant.connectionQuality ? "top-10" : "top-3"} left-3 bg-warning-500 p-1.5 rounded-full animate-pulse z-20`}
+          className={`absolute ${!isLocal && participant.connectionQuality ? "top-10" : "top-3"} left-3 bg-[#8f88ed] w-8 h-8 flex items-center justify-center rounded-full animate-pulse z-20`}
         >
-          <Icon name="pan-tool" size={16} className="text-neutral-900" />
+          <Icon name="pan-tool" size={16} className="text-white" />
         </div>
       )}
 
@@ -491,13 +520,13 @@ export const VideoTile = memo(function VideoTile({
 
           <div className="flex items-center gap-0.5 sm:gap-1">
             {!participant.videoEnabled && (
-              <span className="bg-neutral-600/80 p-0.5 sm:p-1 rounded-full">
+              <div className="bg-neutral-600/80 w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center rounded-full">
                 <Icon
                   name="videocam-off"
                   size={size === "small" ? 10 : 14}
                   className="text-white"
                 />
-              </span>
+              </div>
             )}
           </div>
         </div>

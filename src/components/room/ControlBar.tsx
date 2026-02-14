@@ -122,7 +122,7 @@ const ControlButton = memo(function ControlButton({
           : "bg-neutral-700/80 hover:bg-neutral-600 text-white";
       case "warning":
         return isActive
-          ? "bg-warning-500 hover:bg-warning-500/80 text-neutral-900"
+          ? "bg-[#8f88ed] hover:bg-[#8f88ed]/80 text-white"
           : "bg-neutral-700/80 hover:bg-neutral-600 text-white";
       default:
         return "bg-neutral-700/80 hover:bg-neutral-600 text-white";
