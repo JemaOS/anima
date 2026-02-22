@@ -9,6 +9,13 @@
 const DB_NAME = 'anima-offline-db';
 const DB_VERSION = 1;
 
+// Helper function for cryptographically secure random string
+function generateSecureId(): string {
+  const randomValues = new Uint32Array(9);
+  crypto.getRandomValues(randomValues);
+  return Array.from(randomValues, (value) => value.toString(36)).join('').slice(0, 9);
+}
+
 // Noms des stores
 export const STORES = {
   MESSAGES: 'messages',
@@ -107,7 +114,7 @@ export async function queueMessage(
   const store = transaction.objectStore(STORES.MESSAGES);
 
   const message: QueuedMessage = {
-    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: `${Date.now()}-${generateSecureId()}`,
     roomId,
     content,
     timestamp: Date.now(),
@@ -200,7 +207,7 @@ export async function addPendingAction(
   const store = transaction.objectStore(STORES.PENDING_ACTIONS);
 
   const action: PendingAction = {
-    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+    id: `${Date.now()}-${generateSecureId()}`,
     type,
     payload,
     timestamp: Date.now(),

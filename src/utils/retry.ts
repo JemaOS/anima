@@ -12,6 +12,13 @@
  * - Timeout handling
  */
 
+// Helper function for cryptographically secure random jitter
+function getSecureRandomJitter(): number {
+  const buffer = new Uint32Array(1);
+  crypto.getRandomValues(buffer);
+  return buffer[0] / 0xffffffff;
+}
+
 export interface RetryOptions {
   /** Maximum number of retry attempts */
   maxRetries?: number;
@@ -82,7 +89,7 @@ function calculateDelay(
   // Add jitter to prevent thundering herd
   if (jitter > 0) {
     const jitterAmount = cappedDelay * jitter;
-    return cappedDelay + (Math.random() * jitterAmount * 2 - jitterAmount);
+    return cappedDelay + (getSecureRandomJitter() * jitterAmount * 2 - jitterAmount);
   }
   
   return cappedDelay;

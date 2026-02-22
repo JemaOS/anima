@@ -893,7 +893,10 @@ export class P2PManager {
 
   private calculateRetryDelay(attempt: number): number {
     const baseDelay = INITIAL_RETRY_DELAYS[Math.min(attempt - 1, INITIAL_RETRY_DELAYS.length - 1)];
-    const jitter = Math.random() * 500;
+    // Use cryptographically secure random for jitter
+    const buffer = new Uint32Array(1);
+    crypto.getRandomValues(buffer);
+    const jitter = (buffer[0] / 0xffffffff) * 500;
     return baseDelay + jitter;
   }
 

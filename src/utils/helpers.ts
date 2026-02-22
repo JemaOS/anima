@@ -1,13 +1,37 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
+// Cryptographically secure random number generator using Web Crypto API
+function getSecureRandomValues(buffer: Uint32Array): void {
+  crypto.getRandomValues(buffer);
+}
+
+// Generate a cryptographically secure random string
+function generateSecureRandomString(length: number): string {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const randomValues = new Uint32Array(length);
+  getSecureRandomValues(randomValues);
+  return Array.from(randomValues, (value) => chars[value % chars.length]).join("");
+}
+
+// Generate a cryptographically secure random string in base36
+function generateSecureRandomBase36(length: number): string {
+  const randomValues = new Uint32Array(length);
+  getSecureRandomValues(randomValues);
+  return Array.from(randomValues, (value) => value.toString(36)).join("").slice(0, length);
+}
+
 // Générer un code de réunion aléatoire (format Google Meet: xxx-yyyy-zzz)
 export function generateRoomCode(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz";
   const segment = () => {
     return Array.from(
       { length: 3 },
-      () => chars[Math.floor(Math.random() * chars.length)],
+      () => {
+        const buffer = new Uint32Array(1);
+        getSecureRandomValues(buffer);
+        return chars[buffer[0] % chars.length];
+      },
     ).join("");
   };
   return `${segment()}-${segment()}-${segment()}`;
@@ -15,7 +39,7 @@ export function generateRoomCode(): string {
 
 // Générer un ID unique
 export function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  return `${Date.now()}-${generateSecureRandomBase36(9)}`;
 }
 
 // Valider un code de réunion

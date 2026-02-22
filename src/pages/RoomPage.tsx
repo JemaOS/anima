@@ -697,7 +697,7 @@ export function RoomPage() {
         peerId = `host-${code}`;
         console.log("[RoomPage] 🔌 HOST: Using deterministic peer ID", { peerId, code });
       } else {
-        peerId = `meet-${code}-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
+        peerId = `meet-${code}-${Date.now().toString(36)}-${generateId().substring(0, 5)}`;
         console.log("[RoomPage] 🔌 PARTICIPANT: Using random peer ID", { peerId });
       }
 
