@@ -8,19 +8,20 @@ export interface VideoQualityPreset {
 
 // Device-based presets (auto-detection)
 export const VIDEO_PRESETS: Record<string, VideoQualityPreset> = {
-  // For mobile devices - Full HD baseline with adaptive quality
+  // For mobile devices - 720p baseline: smoother and avoids rear-camera
+  // stutter/lag that 1080p capture causes on many phones.
   mobile: {
-    width: 1920,     // Full HD width
-    height: 1080,    // Full HD height
+    width: 1280,     // HD width
+    height: 720,     // HD height
     frameRate: 30,   // 30 fps for smoother video
-    bitrate: 4000000, // 4 Mbps for Full HD quality
+    bitrate: 2000000, // 2 Mbps for HD quality
   },
-  // For tablets - Full HD baseline with adaptive quality
+  // For tablets - 720p baseline for smooth capture
   tablet: {
-    width: 1920,     // Full HD width
-    height: 1080,    // Full HD height
+    width: 1280,
+    height: 720,
     frameRate: 30,
-    bitrate: 4000000, // 4 Mbps for Full HD quality
+    bitrate: 2000000,
   },
   // For desktop - Full HD baseline with adaptive quality
   desktop: {
@@ -149,25 +150,39 @@ export const getOptimalVideoConstraints = (
     preset = VIDEO_PRESETS[deviceType];
   }
 
+  // On mobile in portrait orientation, swap width/height so the camera is
+  // asked for a portrait frame instead of being forced into landscape (which
+  // caused bad framing / "too zoomed" preview when cropped).
+  const isPortrait =
+    typeof globalThis !== "undefined" &&
+    typeof globalThis.matchMedia === "function" &&
+    globalThis.matchMedia("(orientation: portrait)").matches;
+  const idealWidth = isPortrait ? Math.min(preset.width, preset.height) : preset.width;
+  const idealHeight = isPortrait ? Math.max(preset.width, preset.height) : preset.height;
+
   const result: MediaTrackConstraints = {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     width: {
       min: 320,
-      ideal: preset.width,
-      max: preset.width,
+      ideal: idealWidth,
+      max: 1920,
     },
     height: {
       min: 240,
-      ideal: preset.height,
-      max: preset.height,
+      ideal: idealHeight,
+      max: 1920,
     },
+    // Keep frameRate flexible: forcing min:30 makes rear cameras stutter/lag
+    // when they can't sustain 30fps at high resolution. Let the browser pick a
+    // stable rate while still preferring the preset's ideal.
     frameRate: {
-      min: 30,
+      min: 15,
       ideal: preset.frameRate,
       max: preset.frameRate,
     },
     facingMode: useExact ? { exact: facingMode } : facingMode,
-    aspectRatio: { ideal: 16 / 9 },
+    // Do NOT force a fixed aspectRatio: let the camera deliver its native ratio
+    // so the preview isn't cropped/zoomed and adapts to orientation.
   };
 
   // Mettre en cache
