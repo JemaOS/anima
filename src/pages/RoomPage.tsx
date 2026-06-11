@@ -233,6 +233,7 @@ export function RoomPage() {
   const [inviteLinkCopied, setInviteLinkCopied] = useState(false);
   const [meetingLinkCopied, setMeetingLinkCopied] = useState(false);
   const [roomFullError, setRoomFullError] = useState(false);
+  const [isEncrypted, setIsEncrypted] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<
     "connecting" | "connected" | "reconnecting" | "failed"
   >("connecting");
@@ -808,6 +809,10 @@ export function RoomPage() {
         setConnectionStatus("connected");
         const newUrl = `${globalThis.location.pathname}${globalThis.location.search}#peer_id=${newId}`;
         globalThis.history.replaceState(null, "", newUrl);
+      });
+      manager.onEncryptionStateChange(() => {
+        // Reflect whether all connected peers have an active E2EE session.
+        setIsEncrypted(manager.isFullyEncrypted());
       });
 
       // CRITICAL FIX: Resume audio context on user interaction
@@ -1494,6 +1499,15 @@ export function RoomPage() {
           <span className="text-xs sm:text-sm text-neutral-400">
             {formatDuration(duration)}
           </span>
+          {isEncrypted && (
+            <span
+              className="flex items-center gap-1 text-xs text-green-400"
+              title="Chiffrement de bout en bout actif (E2EE)"
+            >
+              <Icon name="lock" size={14} />
+              <span className="hidden sm:inline">E2EE</span>
+            </span>
+          )}
         </div>
 
         <button

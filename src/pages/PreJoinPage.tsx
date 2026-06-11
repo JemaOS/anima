@@ -167,6 +167,10 @@ export function PreJoinPage() {
   useEffect(() => {
     if (videoRef.current && stream) {
       videoRef.current.srcObject = stream;
+      // Force playback: on Android, switching to the rear camera can leave the
+      // <video> paused so nothing renders. play() may reject (autoplay policy)
+      // which is harmless here.
+      videoRef.current.play().catch(() => {});
     }
   }, [stream]);
 
@@ -212,7 +216,11 @@ export function PreJoinPage() {
       let selected: MediaDeviceInfo | undefined;
 
       const activeTrack = (activeStream ?? stream)?.getVideoTracks()[0];
-      const activeDeviceId = activeTrack?.getSettings().deviceId;
+      const activeSettings = activeTrack?.getSettings();
+      const activeDeviceId = activeSettings?.deviceId;
+      // facingMode from the track is the real source of truth ("user" = front).
+      const activeFacing = (activeSettings as { facingMode?: string } | undefined)?.facingMode;
+
       if (activeDeviceId) {
         selected = videoDevices.find((d) => d.deviceId === activeDeviceId);
       }
@@ -225,7 +233,13 @@ export function PreJoinPage() {
 
       if (selected) {
         setSelectedVideoDevice(selected.deviceId);
-        setIsFrontCamera(!isBackCamera(selected));
+        // Trust the track's real facingMode when available; fall back to the
+        // device label heuristic otherwise.
+        if (activeFacing === "user" || activeFacing === "environment") {
+          setIsFrontCamera(activeFacing === "user");
+        } else {
+          setIsFrontCamera(!isBackCamera(selected));
+        }
       }
       if (audioDevice) setSelectedAudioDevice(audioDevice.deviceId);
     } catch (_err) {

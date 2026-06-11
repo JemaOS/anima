@@ -9,6 +9,7 @@ import {
   getPeerServerOptions,
   TURN_REALM,
 } from "@/services/turnConfig";
+import { getE2EEncryption, E2EEncryption } from "@/services/e2eEncryption";
 
 export interface PeerInfo {
   readonly id: string;
@@ -30,6 +31,7 @@ export interface P2PMessage {
     | "room-full"
     | "stream-ready"
     | "ice-candidate"
+    | "e2ee-key"
     | "ping"
     | "pong";
   readonly data: any;
@@ -115,6 +117,11 @@ export class P2PManager {
   // peerId. Lets the global peer "error" handler fail a pending connect()
   // immediately (e.g. peer-unavailable) instead of waiting for the timeout.
   private pendingConnectRejects: Map<string, (error: Error) => void> = new Map();
+  // End-to-end encryption (X25519 + XSalsa20-Poly1305) for application-level
+  // data-channel payloads (e.g. chat). Media is already protected by DTLS-SRTP.
+  private e2ee: E2EEncryption = getE2EEncryption();
+  // Set of peers with an established E2EE session (key exchange completed).
+  private e2eePeers: Set<string> = new Set();
   private dataConnections: Map<string, DataConnection> = new Map();
   private mediaConnections: Map<string, MediaConnection> = new Map();
   private peers: Map<string, PeerInfo> = new Map();
@@ -183,10 +190,26 @@ export class P2PManager {
   ) => void;
   // Fired when a participant takes over as host (room reopened on rejoin).
   private onHostPromotionCallback?: (newId: string) => void;
+  // Fired when the E2EE session state changes (peer secured / count changes).
+  private onEncryptionStateCallback?: (peerId: string, secured: boolean) => void;
 
   constructor() {
     log("INIT", "P2PManager instance created");
     this.setupNetworkListeners();
+
+    // When E2EE rotates our local key (Perfect Forward Secrecy), push the new
+    // public key to the affected peer so both sides keep matching shared keys.
+    this.e2ee.setKeyRotationCallback((peerId, newPublicKey) => {
+      const conn = this.dataConnections.get(peerId);
+      if (conn && conn.open) {
+        conn.send({
+          type: "e2ee-key",
+          data: { e2eePublicKey: newPublicKey },
+          senderId: this.myId,
+          timestamp: Date.now(),
+        });
+      }
+    });
   }
 
   /**
@@ -989,6 +1012,8 @@ export class P2PManager {
             name: userName,
             isHost: false,
             hasStream: !!localStream,
+            // Include our E2EE public key so the peer can derive the shared key.
+            e2eePublicKey: this.e2ee.getPublicKey(),
           },
           senderId: this.myId,
           timestamp: Date.now(),
@@ -1273,6 +1298,10 @@ export class P2PManager {
         this.reconnectAttempts.delete(peerId);
         this.setConnectionState(peerId, ConnectionState.CONNECTED);
         log("CONN", "Data connection established", { peerId });
+
+        // Kick off the E2EE handshake on every data connection (covers
+        // participant<->participant links that don't exchange peer-info).
+        this.sendE2EEKey(peerId);
 
         // CRITICAL FIX: Only the HOST should initiate media calls
         // Participants should wait for the host to call them
@@ -2487,6 +2516,9 @@ export class P2PManager {
         isHost: this.isHost,
       });
       this.setConnectionState(peerId, ConnectionState.CONNECTED);
+
+      // Kick off the E2EE handshake for this inbound link too.
+      this.sendE2EEKey(peerId);
 
       // If host, send list of existing participants AND initiate media call
       if (this.isHost) {
@@ -3750,6 +3782,19 @@ export class P2PManager {
       isHost: this.isHost,
     });
 
+    // Decrypt E2EE-wrapped application messages before dispatching.
+    if (message.data && (message.data as any).__e2ee && (message.data as any).payload) {
+      const decrypted = this.e2ee.decryptFromDataChannel<any>(
+        fromPeerId,
+        (message.data as any).payload,
+      );
+      if (decrypted === null) {
+        log("MSG", "⚠️ Failed to decrypt E2EE message - dropping", { from: fromPeerId });
+        return;
+      }
+      message = { ...message, data: decrypted };
+    }
+
     switch (message.type) {
       case "room-full":
         this.handleRoomFullMessage(fromPeerId);
@@ -3787,6 +3832,19 @@ export class P2PManager {
         this.handleIceCandidateMessage(message, fromPeerId);
         break;
 
+      case "e2ee-key":
+        if (message.data?.e2eePublicKey) {
+          if (this.e2eePeers.has(fromPeerId)) {
+            // Existing session: peer rotated its key, update the shared secret.
+            this.e2ee.updatePeerPublicKey(fromPeerId, message.data.e2eePublicKey);
+          } else {
+            this.establishE2EESession(fromPeerId, message.data.e2eePublicKey);
+            // Reply so the initiator also gets our key and both sides converge.
+            this.sendE2EEKey(fromPeerId);
+          }
+        }
+        break;
+
       default:
         // Forward other messages to the application
         this.onMessageCallback?.(message);
@@ -3816,6 +3874,18 @@ export class P2PManager {
       isHost: message.data.isHost || false,
       joinedAt: Date.now(),
     });
+
+    // Establish the E2EE session from the peer's public key and reply with ours
+    // so both sides derive the same shared secret.
+    if (message.data.e2eePublicKey) {
+      this.establishE2EESession(fromPeerId, message.data.e2eePublicKey);
+      this.sendMessage(fromPeerId, {
+        type: "e2ee-key",
+        data: { e2eePublicKey: this.e2ee.getPublicKey() },
+        senderId: this.myId,
+        timestamp: Date.now(),
+      });
+    }
 
     log("MSG", "✅ Peer registered", {
       peerId: fromPeerId,
@@ -4365,12 +4435,64 @@ export class P2PManager {
   }
 
   /**
+   * Send our E2EE public key to a peer to initiate/complete the handshake.
+   * Sent directly (unencrypted) since it carries only a public key.
+   */
+  private sendE2EEKey(peerId: string): void {
+    const conn = this.dataConnections.get(peerId);
+    if (conn && conn.open) {
+      conn.send({
+        type: "e2ee-key",
+        data: { e2eePublicKey: this.e2ee.getPublicKey() },
+        senderId: this.myId,
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  /**
+   * Establish an E2EE session with a peer from its public key.
+   */
+  private establishE2EESession(peerId: string, peerPublicKey: string): void {
+    try {
+      if (this.e2eePeers.has(peerId)) return; // already established
+      this.e2ee.establishSession(peerId, peerPublicKey);
+      this.e2eePeers.add(peerId);
+      log("MSG", "🔐 E2EE session established", { peerId });
+      this.onEncryptionStateCallback?.(peerId, true);
+    } catch (error) {
+      log("MSG", "⚠️ Failed to establish E2EE session", {
+        peerId,
+        error: (error as Error)?.message,
+      });
+    }
+  }
+
+  /**
+   * Wrap a user-content message into an encrypted envelope when a session
+   * exists. Only application content (chat) is encrypted; control/signaling
+   * messages are left as-is so the mesh keeps working.
+   */
+  private maybeEncrypt(peerId: string, message: P2PMessage): P2PMessage {
+    if (message.type !== "chat-message") return message;
+    if (!this.e2eePeers.has(peerId)) return message; // no session yet
+
+    const sealed = this.e2ee.encryptForDataChannel(peerId, message.data);
+    if (!sealed) return message;
+
+    return {
+      ...message,
+      data: { __e2ee: true, payload: sealed },
+    };
+  }
+
+  /**
    * Envoyer un message à un pair spécifique
    */
   sendMessage(peerId: string, message: P2PMessage) {
     const conn = this.dataConnections.get(peerId);
     if (conn && conn.open) {
-      conn.send(message);
+      conn.send(this.maybeEncrypt(peerId, message));
     }
   }
 
@@ -4380,7 +4502,8 @@ export class P2PManager {
   broadcast(message: P2PMessage, excludePeerId?: string) {
     this.dataConnections.forEach((conn, peerId) => {
       if (conn.open && peerId !== excludePeerId) {
-        conn.send(message);
+        // Encrypt per-peer (each peer has its own shared key).
+        conn.send(this.maybeEncrypt(peerId, message));
       }
     });
   }
@@ -4390,6 +4513,13 @@ export class P2PManager {
    */
   private handlePeerDisconnection(peerId: string) {
     log("DISC", "Handling peer disconnection", { peerId });
+
+    // Tear down the E2EE session (securely wipes keys for this peer).
+    if (this.e2eePeers.has(peerId)) {
+      this.e2ee.endSession(peerId);
+      this.e2eePeers.delete(peerId);
+      this.onEncryptionStateCallback?.(peerId, false);
+    }
 
     // Close and clean up data connection
     const dataConn = this.dataConnections.get(peerId);
@@ -4543,6 +4673,40 @@ export class P2PManager {
    */
   onHostPromotion(callback: (newId: string) => void) {
     this.onHostPromotionCallback = callback;
+  }
+
+  /**
+   * Set callback fired when a peer's E2EE session is established or torn down.
+   */
+  onEncryptionStateChange(callback: (peerId: string, secured: boolean) => void) {
+    this.onEncryptionStateCallback = callback;
+  }
+
+  /**
+   * Whether an E2EE session is active with a given peer.
+   */
+  isPeerEncrypted(peerId: string): boolean {
+    return this.e2eePeers.has(peerId);
+  }
+
+  /**
+   * Whether every connected peer has an active E2EE session.
+   */
+  isFullyEncrypted(): boolean {
+    const peerIds = Array.from(this.dataConnections.keys());
+    if (peerIds.length === 0) return false;
+    return peerIds.every((id) => this.e2eePeers.has(id));
+  }
+
+  /**
+   * E2EE status snapshot for the UI.
+   */
+  getEncryptionStatus() {
+    return {
+      ...this.e2ee.getEncryptionStatus(),
+      securedPeers: this.e2eePeers.size,
+      totalPeers: this.dataConnections.size,
+    };
   }
 
   /**

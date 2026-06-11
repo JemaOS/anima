@@ -35,6 +35,14 @@ function getMediaConstraints(
   if (videoDeviceId) {
     videoConstraints.deviceId = { exact: videoDeviceId };
     delete videoConstraints.facingMode;
+    // When targeting a specific camera (e.g. the rear camera on Android),
+    // relax width/height to plain "ideal" hints. Keeping strict min/max +
+    // exact deviceId frequently yields an OverconstrainedError or a black
+    // (muted) track on mobile rear cameras whose native resolutions differ.
+    const w = videoConstraints.width as { ideal?: number } | undefined;
+    const h = videoConstraints.height as { ideal?: number } | undefined;
+    if (w?.ideal) videoConstraints.width = { ideal: w.ideal };
+    if (h?.ideal) videoConstraints.height = { ideal: h.ideal };
   }
 
   return { audio: audioConstraints, video: videoConstraints };
