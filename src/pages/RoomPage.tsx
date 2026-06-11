@@ -274,6 +274,14 @@ export function RoomPage() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const startTime = useRef<number>(Date.now());
   const initializationComplete = useRef<boolean>(false);
+  // Tracks the room code for which a session was started. Prevents the main
+  // init effect from tearing down and recreating the P2P session on benign
+  // re-renders (e.g. when memoized callbacks change identity).
+  const activeSessionCode = useRef<string | null>(null);
+  // Deferred teardown handle. A re-render runs the effect cleanup before the
+  // re-run; we defer the actual destroy so a quick re-run can cancel it,
+  // avoiding destroying the manager mid-join on benign re-renders.
+  const pendingTeardown = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Duration timer
   useEffect(() => {
@@ -749,12 +757,28 @@ export function RoomPage() {
       initializationComplete.current = true;
     };
 
+    // A new effect run started: cancel any pending teardown from a prior
+    // cleanup so a benign re-render doesn't destroy our live session.
+    if (pendingTeardown.current) {
+      clearTimeout(pendingTeardown.current);
+      pendingTeardown.current = null;
+    }
+
     const init = async () => {
       // Skip if already initialized AND we have a valid manager
       if (initializationComplete.current && p2pManager.current) {
         console.log("[RoomPage] ⏭️ Already initialized, skipping");
         return;
       }
+
+      // Skip if a session for this exact room code is already (being) set up.
+      // Guards against concurrent/duplicate init runs triggered by re-renders,
+      // which previously destroyed the manager mid-join and broke rejoining.
+      if (activeSessionCode.current === code && p2pManager.current) {
+        console.log("[RoomPage] ⏭️ Session already active for this code, skipping");
+        return;
+      }
+      activeSessionCode.current = code ?? null;
 
       // On Android, add initial delay to ensure previous page's media is fully released
       if (isAndroid() || isMobileDevice()) {
@@ -777,6 +801,14 @@ export function RoomPage() {
       manager.onRoomFull(handleRoomFull);
       manager.onAudioLevel(handleAudioLevel);
       manager.onConnectionQuality(handleConnectionQuality);
+      manager.onHostPromotion((newId) => {
+        // A participant took over as host (room was empty on rejoin).
+        console.log("[RoomPage] 👑 Promoted to host - room reopened", { newId });
+        setMyId(newId);
+        setConnectionStatus("connected");
+        const newUrl = `${globalThis.location.pathname}${globalThis.location.search}#peer_id=${newId}`;
+        globalThis.history.replaceState(null, "", newUrl);
+      });
 
       // CRITICAL FIX: Resume audio context on user interaction
       const resumeAudioContext = () => {
@@ -842,21 +874,32 @@ export function RoomPage() {
     return () => {
       isMounted = false;
 
-      // Only cleanup if we actually initialized something AND it's our manager
-      if (currentManager && p2pManager.current === currentManager) {
-        currentManager.stopQualityMonitoring();
-        currentManager.stopAudioLevelMonitoring();
-        currentManager.destroy();
-        p2pManager.current = null;
-
-        // Reset initialization flag so next mount can initialize
-        initializationComplete.current = false;
+      // Defer teardown: if this cleanup is due to a benign re-render, the next
+      // effect run (scheduled synchronously by React) will cancel this timeout.
+      // If it's a real unmount/navigation, the teardown proceeds.
+      if (pendingTeardown.current) {
+        clearTimeout(pendingTeardown.current);
       }
+      pendingTeardown.current = setTimeout(() => {
+        pendingTeardown.current = null;
 
-      if (currentStream && localStreamRef.current === currentStream) {
-        currentStream.getTracks().forEach((track) => track.stop());
-        localStreamRef.current = null;
-      }
+        // Only cleanup if we actually initialized something AND it's our manager
+        if (currentManager && p2pManager.current === currentManager) {
+          currentManager.stopQualityMonitoring();
+          currentManager.stopAudioLevelMonitoring();
+          currentManager.destroy();
+          p2pManager.current = null;
+
+          // Reset initialization flags so a later mount can initialize
+          initializationComplete.current = false;
+          activeSessionCode.current = null;
+        }
+
+        if (currentStream && localStreamRef.current === currentStream) {
+          currentStream.getTracks().forEach((track) => track.stop());
+          localStreamRef.current = null;
+        }
+      }, 0);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [

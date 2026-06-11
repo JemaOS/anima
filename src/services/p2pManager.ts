@@ -108,6 +108,13 @@ export class P2PManager {
   private peer: Peer | null = null;
   private myId: string = "";
   private isHost: boolean = false;
+  // Set to true once destroy() is called. Used to abort any in-flight
+  // connection/retry loops so they don't operate on a dead Peer instance.
+  private isDestroyed: boolean = false;
+  // Reject handlers for in-flight outgoing data connections, keyed by target
+  // peerId. Lets the global peer "error" handler fail a pending connect()
+  // immediately (e.g. peer-unavailable) instead of waiting for the timeout.
+  private pendingConnectRejects: Map<string, (error: Error) => void> = new Map();
   private dataConnections: Map<string, DataConnection> = new Map();
   private mediaConnections: Map<string, MediaConnection> = new Map();
   private peers: Map<string, PeerInfo> = new Map();
@@ -174,6 +181,8 @@ export class P2PManager {
     peerId: string,
     stream: MediaStream,
   ) => void;
+  // Fired when a participant takes over as host (room reopened on rejoin).
+  private onHostPromotionCallback?: (newId: string) => void;
 
   constructor() {
     log("INIT", "P2PManager instance created");
@@ -628,12 +637,16 @@ export class P2PManager {
     peerId: string,
     isHost: boolean,
     retryCount: number = 0,
+    exactId: boolean = false,
   ): Promise<string> {
     this.isHost = isHost;
 
-    // If retrying due to unavailable-id, add a suffix to make the ID unique
+    // If retrying due to unavailable-id, add a suffix to make the ID unique.
+    // When exactId is true (host takeover), we MUST keep the requested ID:
+    // if it's unavailable it means another peer already became host, so we
+    // surface the error to let the caller fall back to joining instead.
     const actualPeerId =
-      retryCount > 0 ? `${peerId}-${Date.now().toString(36)}` : peerId;
+      retryCount > 0 && !exactId ? `${peerId}-${Date.now().toString(36)}` : peerId;
 
     log("INIT", `Initializing peer as ${isHost ? "HOST" : "PARTICIPANT"}`, {
       requestedPeerId: peerId,
@@ -668,26 +681,58 @@ export class P2PManager {
       });
 
       this.peer.on("error", (error) => {
-        clearTimeout(initTimeout);
         log("ERROR", "Peer error", {
           error: (error as any).type,
           message: (error as any).message,
         });
 
+        // "peer-unavailable" means the target peer does not exist on the
+        // signaling server (e.g. the host left). Fail the matching in-flight
+        // connect() immediately instead of waiting for its 25s timeout, so the
+        // retry/host-takeover logic kicks in fast. This error is NOT fatal for
+        // the Peer itself, so we must not clear the init timeout or reject init.
+        if ((error as any).type === "peer-unavailable") {
+          const message: string = (error as any).message || "";
+          // Message format: "Could not connect to peer <peerId>"
+          for (const [peerId, rejectFn] of this.pendingConnectRejects) {
+            if (message.includes(peerId)) {
+              log("ERROR", "Peer unavailable - failing pending connect fast", { peerId });
+              rejectFn(new Error("peer-unavailable"));
+              return;
+            }
+          }
+          // Could not map to a specific peer; fail the first pending connect.
+          const first = this.pendingConnectRejects.values().next();
+          if (!first.done) {
+            first.value(new Error("peer-unavailable"));
+          }
+          return;
+        }
+
+        clearTimeout(initTimeout);
+
         // Handle specific error types
         if ((error as any).type === "unavailable-id") {
-          // ID is taken, try with a modified ID
-          log("ERROR", "Peer ID unavailable, retrying with modified ID", {
-            retryCount,
-          });
-
           // Clean up current peer
           if (this.peer) {
             this.peer.destroy();
             this.peer = null;
           }
 
-          // Retry with a modified ID (max 3 retries)
+          // During host takeover we must NOT mutate the ID: an unavailable ID
+          // means another peer already became host. Reject so the caller can
+          // fall back to joining that new host.
+          if (exactId) {
+            log("ERROR", "Host ID already taken - another peer is host");
+            reject(error);
+            return;
+          }
+
+          // ID is taken, try with a modified ID (max 3 retries)
+          log("ERROR", "Peer ID unavailable, retrying with modified ID", {
+            retryCount,
+          });
+
           if (retryCount < 3) {
             setTimeout(
               () => {
@@ -774,7 +819,98 @@ export class P2PManager {
       log("JOIN", "⚠️ WARNING: Joining room WITHOUT any local stream!");
     }
 
-    return this.establishConnectionToHost(hostPeerId, userName, localStream);
+    const joined = await this.establishConnectionToHost(hostPeerId, userName, localStream);
+
+    if (joined || this.isDestroyed) {
+      return joined;
+    }
+
+    // Could not reach the host: the room is likely empty (host left, or
+    // everyone left and is now coming back). Take over the deterministic host
+    // ID `host-{code}` to (re)open the room ourselves so people can rejoin.
+    log("JOIN", "🪄 Host unreachable - attempting to take over as host", { hostPeerId });
+    return this.promoteToHost(hostPeerId, userName, localStream);
+  }
+
+  /**
+   * Promote this peer to become the host by re-creating the underlying Peer
+   * with the deterministic host ID (`host-{code}`). Used as a fallback when a
+   * participant cannot reach the existing host (closed/empty room), allowing a
+   * room to be reopened on re-join.
+   */
+  private async promoteToHost(
+    hostPeerId: string,
+    userName: string,
+    localStream: MediaStream | null,
+  ): Promise<boolean> {
+    if (this.isDestroyed) {
+      return false;
+    }
+
+    try {
+      // Tear down the participant peer before reclaiming the host ID, otherwise
+      // the signaling server still considers our old random ID connected.
+      if (this.peer) {
+        log("JOIN", "🧹 Destroying participant peer before host takeover");
+        try {
+          this.peer.destroy();
+        } catch {
+          // ignore
+        }
+        this.peer = null;
+      }
+
+      // Reset participant-side connection bookkeeping.
+      this.dataConnections.clear();
+      this.mediaConnections.clear();
+      this.pendingMediaConnections.clear();
+      this.connectionStates.clear();
+      this.reconnectAttempts.clear();
+
+      // Re-create the Peer with the deterministic host ID (exact, no suffix).
+      await this.initialize(hostPeerId, true, 0, true);
+
+      if (this.isDestroyed) {
+        return false;
+      }
+
+      this.createRoom(userName);
+
+      if (localStream) {
+        this.localStream = localStream;
+      }
+
+      log("JOIN", "✅ Became host - room reopened", { hostPeerId: this.myId });
+      this.onHostPromotionCallback?.(this.myId);
+      return true;
+    } catch (error) {
+      const errType = (error as any)?.type;
+      log("JOIN", "❌ Failed to take over as host", {
+        error: (error as Error)?.message,
+        type: errType,
+      });
+
+      // Race lost: another peer grabbed the host ID first. Re-initialize as a
+      // participant and join the freshly elected host.
+      if (errType === "unavailable-id" && !this.isDestroyed) {
+        log("JOIN", "🔁 Another peer is host now - rejoining as participant");
+        try {
+          const participantId = `meet-${hostPeerId.replace(/^host-/, "")}-${Date.now().toString(36)}`;
+          await this.initialize(participantId, false);
+          if (this.isDestroyed) return false;
+          // Small delay to let the new host finish opening.
+          await new Promise((resolve) => setTimeout(resolve, 500));
+          return this.establishConnectionToHost(hostPeerId, userName, localStream);
+        } catch (rejoinError) {
+          log("JOIN", "❌ Rejoin after lost host race failed", {
+            error: (rejoinError as Error)?.message,
+          });
+          return false;
+        }
+      }
+
+      return false;
+    }
   }
 
   private logLocalStreamDetails(stream: MediaStream) {
@@ -823,6 +959,12 @@ export class P2PManager {
     let useAlternativeICE = false;
 
     for (let attempt = 1; attempt <= MAX_INITIAL_RETRIES; attempt++) {
+      // Abort if the manager was destroyed (e.g. user left/rejoined the room)
+      if (this.isDestroyed) {
+        log("JOIN", "🛑 Aborting connection attempts - manager destroyed");
+        return false;
+      }
+
       try {
         log("JOIN", `🔄 Connection attempt ${attempt}/${MAX_INITIAL_RETRIES} to host: ${hostPeerId}`);
 
@@ -856,10 +998,24 @@ export class P2PManager {
         return true;
       } catch (error) {
         lastError = error as Error;
+        const isPeerUnavailable =
+          (error as any)?.message === "peer-unavailable" ||
+          (error as any)?.type === "peer-unavailable";
+
         log("JOIN", `❌ Attempt ${attempt} failed`, {
           error: (error as Error).message,
-          willRetry: attempt < MAX_INITIAL_RETRIES,
+          peerUnavailable: isPeerUnavailable,
+          willRetry: attempt < MAX_INITIAL_RETRIES && !isPeerUnavailable,
         });
+
+        // If the signaling server explicitly says the host does not exist
+        // (peer-unavailable), retrying is pointless: the room is empty/closed.
+        // Stop immediately so the caller can take over as host right away,
+        // before any React unmount can destroy this manager.
+        if (isPeerUnavailable) {
+          log("JOIN", "🚪 Host does not exist on server - stopping retries to take over");
+          return false;
+        }
 
         this.dataConnections.delete(hostPeerId);
         this.mediaConnections.delete(hostPeerId);
@@ -868,7 +1024,13 @@ export class P2PManager {
           const delay = this.calculateRetryDelay(attempt);
           log("JOIN", `⏳ Waiting ${Math.round(delay)}ms before retry...`);
           await new Promise((resolve) => setTimeout(resolve, delay));
-          
+
+          // Re-check after the delay: manager may have been destroyed meanwhile
+          if (this.isDestroyed) {
+            log("JOIN", "🛑 Aborting after retry delay - manager destroyed");
+            return false;
+          }
+
           if (attempt >= 2) {
             useAlternativeICE = true;
             log("JOIN", "🔄 Will use alternative ICE configuration for next attempt");
@@ -956,8 +1118,14 @@ export class P2PManager {
     try {
       await this.connectToPeer(peerId, localStream, useAlternativeICE);
     } catch (error) {
+      // If the host simply doesn't exist (peer-unavailable), an alternative
+      // ICE config won't help. Propagate immediately so we can take over fast.
+      if ((error as any)?.message === "peer-unavailable") {
+        throw error;
+      }
+
       log("CONN", "Primary connection failed, trying fallback", { peerId, error: (error as Error).message });
-      
+
       // If primary fails and we haven't tried alternative ICE, try it
       if (!useAlternativeICE) {
         log("CONN", "🔄 Trying alternative ICE configuration", { peerId });
@@ -979,10 +1147,41 @@ export class P2PManager {
     useAlternativeICE: boolean = false,
   ): Promise<void> {
     return new Promise((resolve, reject) => {
+      if (this.isDestroyed) {
+        log("CONN", "Cannot connect - manager destroyed");
+        reject(new Error("Manager destroyed"));
+        return;
+      }
+
       if (!this.peer) {
         log("CONN", "Cannot connect - no peer instance");
         reject(new Error("No peer instance"));
         return;
+      }
+
+      // If the Peer has been fully destroyed we cannot use it anymore.
+      if (this.peer.destroyed) {
+        log("CONN", "Cannot connect - peer is destroyed");
+        reject(new Error("Peer destroyed"));
+        return;
+      }
+
+      // If the Peer is merely disconnected from the signaling server (but not
+      // destroyed), reconnect first. Calling .connect() in this state throws
+      // "Cannot connect to new Peer after disconnecting from server" and
+      // returns undefined, which then crashes on dataConn.on(...).
+      if (this.peer.disconnected) {
+        log("CONN", "Peer disconnected from server - reconnecting before connect", { peerId });
+        try {
+          this.peer.reconnect();
+        } catch (e) {
+          log("CONN", "Failed to reconnect peer to signaling server", {
+            peerId,
+            error: (e as Error)?.message,
+          });
+          reject(new Error("Peer disconnected from signaling server"));
+          return;
+        }
       }
 
       // Check if already connected
@@ -1022,16 +1221,54 @@ export class P2PManager {
       
       const dataConn = this.peer.connect(peerId, connectionOptions);
 
-      // Timeout for connection
-      const connectionTimeout = setTimeout(() => {
-        log("CONN", "Connection timeout", { peerId });
-        dataConn.close();
+      // PeerJS returns undefined if the peer is in a bad state (e.g. just
+      // disconnected). Guard against it to avoid "Cannot read properties of
+      // undefined (reading 'on')" crashing the retry loop.
+      if (!dataConn) {
+        log("CONN", "connect() returned no connection - peer in invalid state", { peerId });
         this.setConnectionState(peerId, ConnectionState.FAILED);
-        reject(new Error("Connection timeout"));
+        reject(new Error("Peer connection could not be created"));
+        return;
+      }
+
+      let settled = false;
+      let connectionTimeout: ReturnType<typeof setTimeout>;
+      const cleanup = () => {
+        clearTimeout(connectionTimeout);
+        if (this.pendingConnectRejects.get(peerId) === rejectConnect) {
+          this.pendingConnectRejects.delete(peerId);
+        }
+      };
+      const resolveConnect = () => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve();
+      };
+      const rejectConnect = (error: Error) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        reject(error);
+      };
+
+      // Register so the global peer "error" handler can fail this connect
+      // immediately on peer-unavailable instead of waiting for the timeout.
+      this.pendingConnectRejects.set(peerId, rejectConnect);
+
+      // Timeout for connection
+      connectionTimeout = setTimeout(() => {
+        log("CONN", "Connection timeout", { peerId });
+        try {
+          dataConn.close();
+        } catch {
+          // ignore
+        }
+        this.setConnectionState(peerId, ConnectionState.FAILED);
+        rejectConnect(new Error("Connection timeout"));
       }, CONNECTION_TIMEOUT);
 
       dataConn.on("open", () => {
-        clearTimeout(connectionTimeout);
         this.dataConnections.set(peerId, dataConn);
         this.reconnectAttempts.delete(peerId);
         this.setConnectionState(peerId, ConnectionState.CONNECTED);
@@ -1064,7 +1301,7 @@ export class P2PManager {
           // Participant does NOT initiate media call - waits for host to call
         }
 
-        resolve();
+        resolveConnect();
       });
 
       dataConn.on("data", (data: any) => {
@@ -1078,14 +1315,13 @@ export class P2PManager {
       });
 
       dataConn.on("error", (error) => {
-        clearTimeout(connectionTimeout);
         log("CONN", "Data connection error", {
           peerId,
           error: (error as any).message || error,
         });
         this.setConnectionState(peerId, ConnectionState.RECONNECTING);
         this.attemptReconnect(peerId, localStream);
-        reject(error);
+        rejectConnect(error as Error);
       });
     });
   }
@@ -4302,6 +4538,14 @@ export class P2PManager {
   }
 
   /**
+   * Set callback fired when this peer is promoted to host (room reopened).
+   * Receives the new peer id (the deterministic host id).
+   */
+  onHostPromotion(callback: (newId: string) => void) {
+    this.onHostPromotionCallback = callback;
+  }
+
+  /**
    * Set callback for connection state changes
    */
   onConnectionStateChange(
@@ -4414,6 +4658,11 @@ export class P2PManager {
   destroy() {
     log("DESTROY", "Destroying P2PManager");
 
+    // Mark as destroyed FIRST so any in-flight connection/retry loops abort
+    // instead of calling .connect() on a dead/disconnected Peer (which causes
+    // "Cannot connect to new Peer after disconnecting from server" errors).
+    this.isDestroyed = true;
+
     // Cleanup network listeners
     this.cleanupNetworkListeners?.();
 
@@ -4500,6 +4749,15 @@ export class P2PManager {
     this.pendingReconnects.clear();
     this.connectionHealthChecks.clear();
     this.lastPingTimes.clear();
+    // Reject any in-flight connects so their promises don't hang.
+    this.pendingConnectRejects.forEach((rejectFn) => {
+      try {
+        rejectFn(new Error("Manager destroyed"));
+      } catch {
+        // ignore
+      }
+    });
+    this.pendingConnectRejects.clear();
     this.localStream = null;
 
     log("DESTROY", "P2PManager destroyed");

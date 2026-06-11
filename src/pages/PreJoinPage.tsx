@@ -300,8 +300,8 @@ export function PreJoinPage() {
       <PreJoinHeader code={code} copied={copied} onBack={() => navigate("/")} onCopy={copyCode} />
 
       <main className="flex-1 flex items-center justify-center px-6 py-8">
-        <div className="max-w-3xl w-full flex flex-col lg:flex-row gap-8 items-center">
-          <div className="flex-1 w-full max-w-md">
+        <div className="max-w-3xl w-full flex flex-col lg:flex-row gap-8 items-center lg:items-stretch">
+          <div className="flex-1 w-full max-w-md flex flex-col">
             <VideoPreview
               videoRef={videoRef}
               stream={stream}
@@ -692,15 +692,8 @@ const JoinForm = ({
   };
 
   return (
-    <div className="w-full max-w-sm">
-      <h1 className="text-2xl font-medium text-white mb-2">
-        {isHost ? "Creer une reunion" : "Rejoindre la reunion"}
-      </h1>
-      <p className="text-neutral-400 mb-6">
-        Code: <span className="font-mono text-white">{code}</span>
-      </p>
-
-      <div className="space-y-4">
+    <div className="w-full max-w-sm flex flex-col">
+      <div className="space-y-4 flex flex-col flex-1">
         <div>
           <label htmlFor="userName" className="block text-sm text-neutral-400 mb-2">Votre nom</label>
           <input
@@ -730,7 +723,7 @@ const JoinForm = ({
         )}
 
         {isHost && (
-          <div className="mt-6 p-4 bg-neutral-800 rounded-lg">
+          <div className="mt-auto p-4 bg-neutral-800 rounded-lg">
             <p className="text-sm text-neutral-400 mb-2">Partagez ce code avec les participants:</p>
             <div className="flex items-center gap-2">
               <code className="flex-1 px-3 py-2 bg-neutral-900 rounded font-mono text-white">

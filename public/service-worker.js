@@ -234,7 +234,13 @@ globalThis.addEventListener("fetch", (event) => {
               return caches.match("/offline.html");
             }
 
-            throw new Error("Ressource non disponible");
+            // Ressource non disponible (réseau KO + pas en cache).
+            // Retourner une réponse 503 propre plutôt que de throw, ce qui
+            // évite un "unhandledrejection" bruyant dans la console.
+            return new Response("", {
+              status: 503,
+              statusText: "Service Unavailable",
+            });
           });
         })
     );
