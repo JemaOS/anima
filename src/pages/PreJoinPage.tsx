@@ -589,14 +589,40 @@ const VideoPreview = ({
   onToggleAudio: () => void;
   onToggleVideo: () => void;
   onRetry: () => void;
-}) => (
-  <div className="aspect-video bg-neutral-800 rounded-xl overflow-hidden relative">
+}) => {
+  // Track the real aspect ratio of the captured video so the frame matches the
+  // camera orientation (portrait on phones held vertically) instead of being
+  // forced into a fixed 16:9 landscape box.
+  const [aspect, setAspect] = React.useState<number>(16 / 9);
+
+  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
+    const v = e.currentTarget;
+    if (v.videoWidth > 0 && v.videoHeight > 0) {
+      setAspect(v.videoWidth / v.videoHeight);
+    }
+  };
+
+  const isPortrait = aspect < 1;
+
+  return (
+  <div
+    className="bg-neutral-800 rounded-xl overflow-hidden relative mx-auto"
+    style={{
+      aspectRatio: String(aspect),
+      // Portrait: cap the height and let width follow the ratio so the frame
+      // doesn't fill the whole screen. Landscape: full width as before.
+      ...(isPortrait
+        ? { height: "min(60vh, 70vw)", width: "auto", maxWidth: "100%" }
+        : { width: "100%" }),
+    }}
+  >
     {videoEnabled && stream ? (
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
+        onLoadedMetadata={handleLoadedMetadata}
         className="w-full h-full object-contain"
         style={{ transform: isFrontCamera ? "scaleX(-1)" : "none" }}
       />
@@ -677,7 +703,8 @@ const VideoPreview = ({
       </div>
     )}
   </div>
-);
+  );
+};
 
 const DeviceSelectors = ({
   devices,
