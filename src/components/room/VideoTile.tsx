@@ -51,6 +51,19 @@ const getQualityBars = (quality?: ConnectionQuality): number => {
 };
 
 // Composant pour l'indicateur de qualité de connexion - séparé pour éviter les re-renders
+const getQualityLabel = (quality?: ConnectionQuality): string => {
+  switch (quality) {
+    case "good":
+      return "Qualité vidéo : bonne";
+    case "medium":
+      return "Qualité vidéo : moyenne";
+    case "poor":
+      return "Qualité vidéo : faible";
+    default:
+      return "Qualité vidéo : mesure en cours";
+  }
+};
+
 const ConnectionQualityIndicator = memo(function ConnectionQualityIndicator({
   quality,
 }: {
@@ -58,9 +71,14 @@ const ConnectionQualityIndicator = memo(function ConnectionQualityIndicator({
 }) {
   const bars = getQualityBars(quality);
   const colorClass = getQualityColor(quality);
+  const label = getQualityLabel(quality);
 
   return (
-    <div className="absolute top-2 left-2 z-20 flex items-end gap-0.5 bg-black/50 rounded px-1.5 py-1">
+    <div
+      className="absolute top-2 left-2 z-20 flex items-end gap-0.5 bg-black/50 rounded px-1.5 py-1"
+      title={label}
+      aria-label={label}
+    >
       {[1, 2, 3].map((bar) => (
         <div
           key={bar}

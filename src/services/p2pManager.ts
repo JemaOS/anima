@@ -68,6 +68,8 @@ export type VideoQuality = "low" | "medium" | "high" | "ultra";
 // Connection statistics interface
 export interface ConnectionStats {
   readonly packetsLost: number;
+  // Per-interval packet loss rate in percent (0-100), computed from deltas.
+  readonly lossRate: number;
   readonly jitter: number;
   readonly roundTripTime: number;
   readonly bytesReceived: number;
@@ -148,6 +150,17 @@ export class P2PManager {
   // Quality monitoring
   private qualityMonitorInterval: ReturnType<typeof setInterval> | null = null;
   private connectionStats: Map<string, ConnectionStats> = new Map();
+  // Previous raw RTP samples per peer, used to compute per-interval loss rate
+  // (packetsLost is cumulative, so we need the delta between two samples).
+  private statsSamples: Map<
+    string,
+    { packetsLost: number; packetsReceived: number; timestamp: number }
+  > = new Map();
+  // Current applied video quality per peer, to avoid redundant setParameters
+  // calls and to implement hysteresis (no quality yo-yo).
+  private appliedQuality: Map<string, VideoQuality> = new Map();
+  // Consecutive good-quality samples per peer, used before upgrading quality.
+  private goodStreak: Map<string, number> = new Map();
 
   // Rafraîchissement périodique des credentials TURN éphémères
   private iceRefreshInterval: ReturnType<typeof setInterval> | null = null;
@@ -3485,19 +3498,47 @@ export class P2PManager {
       ?.find((s: RTCRtpSender) => s.track?.kind === "video");
 
     if (sender) {
+      // Skip if the same quality is already applied (avoids redundant
+      // setParameters churn and renegotiation jitter).
+      if (this.appliedQuality.get(peerId) === quality) return;
+
       try {
         const params = sender.getParameters();
-        if (!params.encodings) params.encodings = [{}];
+        if (!params.encodings || params.encodings.length === 0) {
+          params.encodings = [{}];
+        }
 
         const bitrates: Record<VideoQuality, number> = {
-          low: 300000, // 300 kbps - for poor connections (was 150)
-          medium: 800000, // 800 kbps - balanced (was 500)
-          high: 1500000, // 1.5 Mbps - good connections (unchanged)
-          ultra: 4000000, // 4 Mbps - for 1080p60
+          low: 300000, // 300 kbps - poor connections
+          medium: 800000, // 800 kbps - balanced
+          high: 1500000, // 1.5 Mbps - good connections
+          ultra: 4000000, // 4 Mbps - 1080p60
+        };
+
+        // Actually drop the resolution on poor links, not just the bitrate.
+        // scaleResolutionDownBy 2 turns a 720p capture into ~360-480p, which is
+        // far more effective at reducing stutter on unstable mobile networks.
+        const scaleDown: Record<VideoQuality, number> = {
+          low: 2, // ~480p (or 360p from 720p) - degraded but smooth
+          medium: 1.5, // ~480p from 720p
+          high: 1, // native
+          ultra: 1, // native
         };
 
         params.encodings[0].maxBitrate = bitrates[quality];
+        params.encodings[0].scaleResolutionDownBy = scaleDown[quality];
+        // Hint the encoder to prioritise frame rate over resolution when
+        // constrained (keeps motion smooth at lower res).
+        params.degradationPreference = "maintain-framerate";
+
         await sender.setParameters(params);
+        this.appliedQuality.set(peerId, quality);
+        log("MEDIA", "🎚️ Adjusted video quality", {
+          peerId,
+          quality,
+          maxBitrate: bitrates[quality],
+          scaleResolutionDownBy: scaleDown[quality],
+        });
       } catch (_error) {
         // Failed to adjust video quality
       }
@@ -3521,28 +3562,50 @@ export class P2PManager {
     try {
       const stats = await pc.getStats();
       let packetsLost = 0;
+      let packetsReceived = 0;
       let jitter = 0;
       let roundTripTime = 0;
       let bytesReceived = 0;
       let framesPerSecond: number | undefined;
-      let quality: ConnectionQuality = "good";
 
       stats.forEach((report: any) => {
         if (report.type === "inbound-rtp" && report.kind === "video") {
           packetsLost = report.packetsLost || 0;
-          jitter = report.jitter || 0;
+          packetsReceived = report.packetsReceived || 0;
+          jitter = report.jitter || 0; // seconds
           bytesReceived = report.bytesReceived || 0;
           framesPerSecond = report.framesPerSecond;
         }
         if (report.type === "candidate-pair" && report.state === "succeeded") {
-          roundTripTime = (report.currentRoundTripTime || 0) * 1000;
+          roundTripTime = (report.currentRoundTripTime || 0) * 1000; // ms
         }
       });
 
-      // Determine quality based on metrics
-      if (packetsLost > 50 || roundTripTime > 300) {
+      // Compute per-interval loss rate from deltas. packetsLost/packetsReceived
+      // are cumulative counters, so comparing the running total to a threshold
+      // is wrong (it always grows). We measure loss over the last interval only.
+      const prev = this.statsSamples.get(peerId);
+      let lossRate = 0;
+      if (prev) {
+        const lostDelta = Math.max(0, packetsLost - prev.packetsLost);
+        const recvDelta = Math.max(0, packetsReceived - prev.packetsReceived);
+        const totalDelta = lostDelta + recvDelta;
+        if (totalDelta > 0) {
+          lossRate = (lostDelta / totalDelta) * 100;
+        }
+      }
+      this.statsSamples.set(peerId, {
+        packetsLost,
+        packetsReceived,
+        timestamp: Date.now(),
+      });
+
+      // Quality from per-interval loss rate, jitter (ms) and RTT (ms).
+      const jitterMs = jitter * 1000;
+      let quality: ConnectionQuality;
+      if (lossRate > 5 || roundTripTime > 300 || jitterMs > 50) {
         quality = "poor";
-      } else if (packetsLost > 20 || roundTripTime > 150) {
+      } else if (lossRate > 2 || roundTripTime > 150 || jitterMs > 30) {
         quality = "medium";
       } else {
         quality = "good";
@@ -3550,6 +3613,7 @@ export class P2PManager {
 
       return {
         packetsLost,
+        lossRate,
         jitter,
         roundTripTime,
         bytesReceived,
@@ -3578,26 +3642,48 @@ export class P2PManager {
 
     if (this.qualityMonitorInterval) return;
 
+    // Ordered ladder for upgrade/downgrade steps.
+    const LADDER: VideoQuality[] = ["low", "medium", "high"];
+    // Require this many consecutive "good" samples before stepping quality up,
+    // so a brief lull doesn't immediately bump us back to high (anti yo-yo).
+    const UPGRADE_STREAK = 3;
+
     this.qualityMonitorInterval = setInterval(async () => {
       for (const [peerId] of this.mediaConnections) {
         const stats = await this.getConnectionStats(peerId);
-        if (stats) {
-          // Store stats
-          this.connectionStats.set(peerId, stats);
+        if (!stats) continue;
 
-          // Notify callback
-          this.onConnectionQualityCallback?.(peerId, stats.quality);
+        this.connectionStats.set(peerId, stats);
+        this.onConnectionQualityCallback?.(peerId, stats.quality);
 
-          // Auto-adjust video quality based on connection quality
-          const qualityMap: Record<ConnectionQuality, VideoQuality> = {
-            poor: "low",
-            medium: "medium",
-            good: "high",
-          };
-          await this.adjustVideoQuality(peerId, qualityMap[stats.quality]);
+        const current = this.appliedQuality.get(peerId) ?? "high";
+        const currentIdx = Math.max(0, LADDER.indexOf(current));
+        let targetIdx = currentIdx;
+
+        if (stats.quality === "poor") {
+          // Downgrade immediately and reset the good streak.
+          targetIdx = 0; // low (480p)
+          this.goodStreak.set(peerId, 0);
+        } else if (stats.quality === "medium") {
+          // Step down one level if not already there.
+          targetIdx = Math.min(currentIdx, 1);
+          this.goodStreak.set(peerId, 0);
+        } else {
+          // Good: only step up after a sustained good streak (hysteresis).
+          const streak = (this.goodStreak.get(peerId) ?? 0) + 1;
+          this.goodStreak.set(peerId, streak);
+          if (streak >= UPGRADE_STREAK && currentIdx < LADDER.length - 1) {
+            targetIdx = currentIdx + 1;
+            this.goodStreak.set(peerId, 0);
+          }
+        }
+
+        const target = LADDER[targetIdx];
+        if (target !== current) {
+          await this.adjustVideoQuality(peerId, target);
         }
       }
-    }, 5000); // Check every 5 seconds
+    }, 4000); // Check every 4 seconds
   }
 
   /**
@@ -4567,6 +4653,9 @@ export class P2PManager {
     this.reconnectAttempts.delete(peerId);
     this.iceRestartAttempts.delete(peerId);
     this.connectionStats.delete(peerId);
+    this.statsSamples.delete(peerId);
+    this.appliedQuality.delete(peerId);
+    this.goodStreak.delete(peerId);
 
     // Notify others of disconnection if host
     if (this.isHost) {
@@ -4908,6 +4997,9 @@ export class P2PManager {
     this.connectionStates.clear();
     this.iceConnectionStates.clear();
     this.connectionStats.clear();
+    this.statsSamples.clear();
+    this.appliedQuality.clear();
+    this.goodStreak.clear();
     this.audioAnalysers.clear();
     this.audioSources.clear();
     this.pendingReconnects.clear();

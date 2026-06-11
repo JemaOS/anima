@@ -11,6 +11,7 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:e2e": "playwright test",
+    "load-test": "node scripts/load-test.mjs",
     "preview": "vite preview",
     "install-deps": "npm install",
     "clean": "node -e \"const fs=require('fs');const path=require('path');['node_modules','.pnpm-store','pnpm-lock.yaml'].forEach(p=>{try{fs.rmSync(p,{recursive:true,force:true})}catch(e){}})\""
