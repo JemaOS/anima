@@ -21,19 +21,7 @@ interface ControlBarProps {
   readonly onOpenParticipants: () => void;
   readonly onOpenSettings?: () => void;
   readonly onLeave: () => void;
-  readonly onOpenReactions: (emoji: string) => void;
 }
-
-// Emoji list shared by the reactions popover. Codepoints rendered at runtime.
-const REACTION_EMOJIS = ["1f44d", "2764-fe0f", "1f389", "1f44f", "1f602", "1f914"];
-
-const renderEmoji = (emoji: string): string =>
-  emoji.includes("-")
-    ? emoji
-        .split("-")
-        .map((code) => String.fromCodePoint(Number.parseInt(code, 16)))
-        .join("")
-    : String.fromCodePoint(Number.parseInt(emoji, 16));
 
 // Détecter si l'appareil est mobile - mémoïsé
 const isMobileDevice = () => {
@@ -43,54 +31,6 @@ const isMobileDevice = () => {
     ) || "ontouchstart" in globalThis
   );
 };
-
-// Composant pour le bouton de réaction - séparé pour éviter les re-renders
-const ReactionsButton = memo(function ReactionsButton({
-  onOpenReactions,
-}: {
-  onOpenReactions: (emoji: string) => void;
-}) {
-  const [showReactions, setShowReactions] = useState(false);
-
-  const toggleReactions = useCallback(() => {
-    setShowReactions((prev) => !prev);
-  }, []);
-
-  const handleReactionClick = useCallback(
-    (emoji: string) => {
-      // Pass the chosen emoji up so it can actually be broadcast.
-      onOpenReactions(emoji);
-      setShowReactions(false);
-    },
-    [onOpenReactions],
-  );
-
-  return (
-    <div className="relative shrink-0 snap-start">
-      <button
-        onClick={toggleReactions}
-        className="w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0 bg-neutral-700/80 hover:bg-neutral-600 text-white"
-        title="Réactions"
-      >
-        <Icon name="emoji" size={18} />
-      </button>
-
-      {showReactions && (
-        <div className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-neutral-800 rounded-xl p-1.5 flex gap-0.5 shadow-lg">
-          {REACTION_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => handleReactionClick(renderEmoji(emoji))}
-              className="text-lg hover:scale-125 transition-transform p-1"
-            >
-              {renderEmoji(emoji)}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-});
 
   // Bouton individuel mémoïsé
 const ControlButton = memo(function ControlButton({
@@ -168,7 +108,6 @@ export const ControlBar = memo(function ControlBar({
   onOpenParticipants,
   onOpenSettings,
   onLeave,
-  onOpenReactions,
 }: ControlBarProps) {
   // Mémoriser la détection mobile pour éviter les recalculs
   const isMobile = useMemo(() => isMobileDevice(), []);
@@ -286,9 +225,6 @@ export const ControlBar = memo(function ControlBar({
             isActive={handRaised}
           />
         )}
-
-        {/* Réactions - visible everywhere except ultra-small screens */}
-        {!isUltraSmall && <ReactionsButton onOpenReactions={onOpenReactions} />}
 
         {/* Discussion - toujours visible */}
         <ControlButton

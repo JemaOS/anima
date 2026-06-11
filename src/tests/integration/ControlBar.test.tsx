@@ -22,7 +22,6 @@ describe.skip("ControlBar Component", () => {
     onOpenParticipants: vi.fn(),
     onOpenSettings: vi.fn(),
     onLeave: vi.fn(),
-    onOpenReactions: vi.fn(),
   };
 
   it("renders correctly", () => {

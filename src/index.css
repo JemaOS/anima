@@ -114,30 +114,6 @@
   animation: spin 1s linear infinite;
 }
 
-/* Floating emoji reactions in the call view */
-@keyframes reaction-float {
-  0% {
-    opacity: 0;
-    transform: translateY(20px) scale(0.6);
-  }
-  15% {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-  80% {
-    opacity: 1;
-    transform: translateY(-120px) scale(1);
-  }
-  100% {
-    opacity: 0;
-    transform: translateY(-180px) scale(0.9);
-  }
-}
-
-.animate-reaction-float {
-  animation: reaction-float 4s ease-out forwards;
-}
-
 /* JEMA: Dégradés subtils d'arrière-plan (optionnel) */
 .bg-gradient-jema {
   background: linear-gradient(135deg, #f5f4fe 0%, #f0f2f5 50%, #ffffff 100%);
