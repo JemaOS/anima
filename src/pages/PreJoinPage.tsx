@@ -42,11 +42,6 @@ export function PreJoinPage() {
   const isNavigatingRef = useRef(false);
   const mediaRetryCount = useRef(0);
   const maxMediaRetries = 3;
-  // Keep latest values for the orientation listener without re-subscribing.
-  const videoEnabledRef = useRef(videoEnabled);
-  videoEnabledRef.current = videoEnabled;
-  const selectedVideoDeviceRef = useRef(selectedVideoDevice);
-  selectedVideoDeviceRef.current = selectedVideoDevice;
 
   const networkStatus = useNetworkStatus({
     onOnline: () => {
@@ -173,33 +168,6 @@ export function PreJoinPage() {
       videoRef.current.play().catch(() => {});
     }
   }, [stream]);
-
-  // Re-capture on device orientation change so the camera frame matches the
-  // new portrait/landscape orientation (fixes wrong/zoomed framing after a
-  // rotation). Debounced and only when video is active.
-  useEffect(() => {
-    let timeout: ReturnType<typeof setTimeout> | null = null;
-
-    const handleOrientationChange = () => {
-      if (timeout) clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        if (videoEnabledRef.current) {
-          initializeMedia(selectedVideoDeviceRef.current || undefined);
-        }
-      }, 400);
-    };
-
-    const mq = globalThis.matchMedia?.("(orientation: portrait)");
-    mq?.addEventListener?.("change", handleOrientationChange);
-    globalThis.addEventListener("orientationchange", handleOrientationChange);
-
-    return () => {
-      if (timeout) clearTimeout(timeout);
-      mq?.removeEventListener?.("change", handleOrientationChange);
-      globalThis.removeEventListener("orientationchange", handleOrientationChange);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   const loadDevices = async (activeStream?: MediaStream | null) => {
     try {
@@ -589,40 +557,17 @@ const VideoPreview = ({
   onToggleAudio: () => void;
   onToggleVideo: () => void;
   onRetry: () => void;
-}) => {
-  // Track the real aspect ratio of the captured video so the frame matches the
-  // camera orientation (portrait on phones held vertically) instead of being
-  // forced into a fixed 16:9 landscape box.
-  const [aspect, setAspect] = React.useState<number>(16 / 9);
-
-  const handleLoadedMetadata = (e: React.SyntheticEvent<HTMLVideoElement>) => {
-    const v = e.currentTarget;
-    if (v.videoWidth > 0 && v.videoHeight > 0) {
-      setAspect(v.videoWidth / v.videoHeight);
-    }
-  };
-
-  const isPortrait = aspect < 1;
-
-  return (
-  <div
-    className="bg-neutral-800 rounded-xl overflow-hidden relative mx-auto"
-    style={{
-      aspectRatio: String(aspect),
-      // Portrait: cap the height and let width follow the ratio so the frame
-      // doesn't fill the whole screen. Landscape: full width as before.
-      ...(isPortrait
-        ? { height: "min(60vh, 70vw)", width: "auto", maxWidth: "100%" }
-        : { width: "100%" }),
-    }}
-  >
+}) => (
+  // Fixed 16:9 frame. The video is fitted inside with object-contain so any
+  // camera format (portrait or landscape) shows fully without distorting the
+  // frame or hiding the controls.
+  <div className="aspect-video bg-neutral-800 rounded-xl overflow-hidden relative w-full">
     {videoEnabled && stream ? (
       <video
         ref={videoRef}
         autoPlay
         playsInline
         muted
-        onLoadedMetadata={handleLoadedMetadata}
         className="w-full h-full object-contain"
         style={{ transform: isFrontCamera ? "scaleX(-1)" : "none" }}
       />
@@ -703,8 +648,7 @@ const VideoPreview = ({
       </div>
     )}
   </div>
-  );
-};
+);
 
 const DeviceSelectors = ({
   devices,

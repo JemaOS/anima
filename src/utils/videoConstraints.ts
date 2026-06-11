@@ -150,26 +150,16 @@ export const getOptimalVideoConstraints = (
     preset = VIDEO_PRESETS[deviceType];
   }
 
-  // On mobile in portrait orientation, swap width/height so the camera is
-  // asked for a portrait frame instead of being forced into landscape (which
-  // caused bad framing / "too zoomed" preview when cropped).
-  const isPortrait =
-    typeof globalThis !== "undefined" &&
-    typeof globalThis.matchMedia === "function" &&
-    globalThis.matchMedia("(orientation: portrait)").matches;
-  const idealWidth = isPortrait ? Math.min(preset.width, preset.height) : preset.width;
-  const idealHeight = isPortrait ? Math.max(preset.width, preset.height) : preset.height;
-
   const result: MediaTrackConstraints = {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     width: {
       min: 320,
-      ideal: idealWidth,
+      ideal: preset.width,
       max: 1920,
     },
     height: {
       min: 240,
-      ideal: idealHeight,
+      ideal: preset.height,
       max: 1920,
     },
     // Keep frameRate flexible: forcing min:30 makes rear cameras stutter/lag
