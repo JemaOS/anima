@@ -8,7 +8,7 @@ import crypto from "node:crypto";
  * username/credential valable un temps limité (TTL).
  *
  * Format coturn (time-limited credentials) :
- *   username   = <timestamp_expiration>:<id optionnel>
+ *   username   = <timestamp_expiration>
  *   credential = base64( HMAC-SHA1( secret, username ) )
  */
 export default function handler(req, res) {
@@ -18,14 +18,12 @@ export default function handler(req, res) {
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
-    res.status(204).end();
-    return;
+    return res.status(204).end();
   }
 
   const secret = process.env.TURN_SECRET;
   if (!secret) {
-    res.status(500).json({ error: "TURN_SECRET not configured" });
-    return;
+    return res.status(500).json({ error: "TURN_SECRET not configured" });
   }
 
   const realm = process.env.TURN_REALM || "turn.jemaos.com";
@@ -40,10 +38,10 @@ export default function handler(req, res) {
     .update(username)
     .digest("base64");
 
-  // Pas de cache : chaque appel doit donner une credential fraîche.
   res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Type", "application/json");
 
-  res.status(200).json({
+  return res.status(200).json({
     username,
     credential,
     ttl: ttlSeconds,
