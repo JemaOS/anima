@@ -29,9 +29,12 @@ export const SIGNALING_SECURE: boolean =
 
 export const TURN_REALM: string = env.VITE_TURN_REALM || "turn.jemaos.com";
 
-// Endpoint qui fournit les credentials éphémères (route Vercel par défaut).
+// Endpoint qui fournit les credentials éphémères.
+// Servi par le serveur self-hosted (anima-signaling derrière Nginx HTTPS),
+// au même endroit que le signaling. Le secret HMAC ne quitte jamais le serveur.
 const TURN_CREDENTIALS_URL: string =
-  env.VITE_TURN_CREDENTIALS_URL || "/api/turn-credentials";
+  env.VITE_TURN_CREDENTIALS_URL ||
+  `https://${SIGNALING_HOST}:${SIGNALING_PORT}/credentials`;
 
 export interface TurnCredentials {
   readonly iceServers: RTCIceServer[];

@@ -1,12 +1,5 @@
 {
-  "functions": {
-    "api/**/*.js": {
-      "runtime": "@vercel/node@5.8.15"
-    }
-  },
-  "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ],
+  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }],
   "headers": [
     {
       "source": "/(.*)",
