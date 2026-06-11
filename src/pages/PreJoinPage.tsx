@@ -132,6 +132,7 @@ export function PreJoinPage() {
         setPermissionsGranted(true);
         setError(null);
         mediaRetryCount.current = 0;
+        return newStream;
       } else if (streamError) {
         handleStreamError(streamError, retryCount, deviceIdOverride);
       }
@@ -139,13 +140,14 @@ export function PreJoinPage() {
       console.error("Media initialization error:", err);
       setError("Erreur inattendue lors de l'initialisation média.");
     }
+    return null;
   };
 
   useEffect(() => {
     const init = async () => {
       await requestPermissions();
-      await initializeMedia();
-      await loadDevices();
+      const activeStream = await initializeMedia();
+      await loadDevices(activeStream);
     };
     init();
 
@@ -163,17 +165,35 @@ export function PreJoinPage() {
     }
   }, [stream]);
 
-  const loadDevices = async () => {
+  const loadDevices = async (activeStream?: MediaStream | null) => {
     try {
       const deviceList = await navigator.mediaDevices.enumerateDevices();
       setDevices(deviceList);
 
-      const videoDevice = deviceList.find((d) => d.kind === "videoinput");
+      const videoDevices = deviceList.filter((d) => d.kind === "videoinput");
       const audioDevice = deviceList.find((d) => d.kind === "audioinput");
 
-      if (videoDevice) {
-        setSelectedVideoDevice(videoDevice.deviceId);
-        setIsFrontCamera(!isBackCamera(videoDevice));
+      // Sync the selected video device with the camera that is ACTUALLY being
+      // captured (the initial stream uses facingMode "user" = front camera).
+      // Picking the first videoinput is wrong on mobile, where enumerateDevices
+      // may list the back camera first, causing a label/preview mismatch.
+      let selected: MediaDeviceInfo | undefined;
+
+      const activeTrack = (activeStream ?? stream)?.getVideoTracks()[0];
+      const activeDeviceId = activeTrack?.getSettings().deviceId;
+      if (activeDeviceId) {
+        selected = videoDevices.find((d) => d.deviceId === activeDeviceId);
+      }
+
+      // Fallbacks: prefer a front camera (matches the default capture), then
+      // any video device.
+      if (!selected) {
+        selected = videoDevices.find((d) => !isBackCamera(d)) ?? videoDevices[0];
+      }
+
+      if (selected) {
+        setSelectedVideoDevice(selected.deviceId);
+        setIsFrontCamera(!isBackCamera(selected));
       }
       if (audioDevice) setSelectedAudioDevice(audioDevice.deviceId);
     } catch (_err) {
