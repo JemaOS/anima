@@ -3,6 +3,12 @@
 
 import Peer, { DataConnection, MediaConnection } from "peerjs";
 import { retry, RetryPresets } from "@/utils/retry";
+import {
+  getIceServers as fetchIceServers,
+  getRelayOnlyIceServers as fetchRelayOnlyIceServers,
+  getPeerServerOptions,
+  TURN_REALM,
+} from "@/services/turnConfig";
 
 export interface PeerInfo {
   readonly id: string;
@@ -129,6 +135,9 @@ export class P2PManager {
   private qualityMonitorInterval: ReturnType<typeof setInterval> | null = null;
   private connectionStats: Map<string, ConnectionStats> = new Map();
 
+  // Rafraîchissement périodique des credentials TURN éphémères
+  private iceRefreshInterval: ReturnType<typeof setInterval> | null = null;
+
   // Audio level detection
   private audioContext: AudioContext | null = null;
   private audioAnalysers: Map<string, AnalyserNode> = new Map();
@@ -180,84 +189,62 @@ export class P2PManager {
     ) || "ontouchstart" in window;
   }
 
-  // Free TURN server sources - expanded for better reliability
-  private TURN_SERVERS = {
-    // Metered.ca - free tier (50GB/month)
-    metered: [
-      {
-        urls: "turn:a.relay.metered.ca:80",
-        username: "e8dd65b92c62d5e98c3d0104",
-        credential: "uWdWNmkhvyqTEj3B",
-      },
-      {
-        urls: "turn:a.relay.metered.ca:443",
-        username: "e8dd65b92c62d5e98c3d0104",
-        credential: "uWdWNmkhvyqTEj3B",
-      },
-      {
-        urls: "turn:a.relay.metered.ca:443?transport=tcp",
-        username: "e8dd65b92c62d5e98c3d0104",
-        credential: "uWdWNmkhvyqTEj3B",
-      },
-    ],
-    // OpenRelay - public free servers
-    openrelay: [
-      {
-        urls: "turn:openrelay.metered.ca:80",
-        username: "openrelayproject",
-        credential: "openrelayproject",
-      },
-      {
-        urls: "turn:openrelay.metered.ca:443",
-        username: "openrelayproject",
-        credential: "openrelayproject",
-      },
-      {
-        urls: "turn:openrelay.metered.ca:443?transport=tcp",
-        username: "openrelayproject",
-        credential: "openrelayproject",
-      },
-    ],
-    // Twilio TURN (public trial credentials - rotated frequently)
-    twilio: [
-      {
-        urls: "stun:global.stun.twilio.com:3478",
-      },
-    ],
-    // Google STUN (always reliable)
-    google: [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun2.l.google.com:19302" },
-      { urls: "stun:stun3.l.google.com:19302" },
-      { urls: "stun:stun4.l.google.com:19302" },
-    ],
-  };
+  // Cache synchrone des ICE servers (self-hosted coturn sur turn.jemaos.com).
+  // Alimenté de façon asynchrone par refreshIceServers() avant l'init du Peer,
+  // puis rafraîchi périodiquement (credentials TURN éphémères).
+  private cachedIceServers: RTCIceServer[] = [
+    { urls: `stun:${TURN_REALM}:3478` },
+  ];
+  private cachedRelayOnlyIceServers: RTCIceServer[] = [];
 
   /**
-   * Get ICE servers configuration
-   * Tries multiple free TURN services for maximum compatibility
+   * Récupère les credentials TURN éphémères depuis l'endpoint /api/turn-credentials
+   * et met à jour le cache synchrone. À appeler avant l'init du Peer et
+   * périodiquement (les credentials expirent).
    */
-  private getIceServers(): RTCIceServer[] {
-    // Combine all servers with STUN first for speed, then TURN for reliability
-    return [
-      ...this.TURN_SERVERS.google,
-      ...this.TURN_SERVERS.twilio,
-      ...this.TURN_SERVERS.metered,
-      ...this.TURN_SERVERS.openrelay,
-    ];
+  private async refreshIceServers(): Promise<void> {
+    try {
+      const [iceServers, relayOnly] = await Promise.all([
+        fetchIceServers(),
+        fetchRelayOnlyIceServers(),
+      ]);
+      if (iceServers.length > 0) {
+        this.cachedIceServers = iceServers;
+      }
+      this.cachedRelayOnlyIceServers = relayOnly;
+      log("ICE", "✅ ICE servers refreshed (self-hosted TURN)", {
+        count: this.cachedIceServers.length,
+        relayCount: this.cachedRelayOnlyIceServers.length,
+      });
+    } catch (error) {
+      log("ICE", "⚠️ Failed to refresh ICE servers, keeping cache/STUN", {
+        error: (error as Error).message,
+      });
+    }
   }
 
   /**
-   * Get ICE servers with relay-only mode for fallback
-   * Used when normal ICE fails
+   * Get ICE servers configuration (self-hosted coturn).
+   */
+  private getIceServers(): RTCIceServer[] {
+    return this.cachedIceServers;
+  }
+
+  /**
+   * Get ICE servers with relay-only mode for fallback (force TURN).
    */
   private getRelayOnlyIceServers(): RTCIceServer[] {
-    // Return only TURN servers for forced relay mode
-    return [
-      ...this.TURN_SERVERS.metered,
-      ...this.TURN_SERVERS.openrelay,
-    ];
+    // Si le cache relay-only est vide (credentials pas encore chargées),
+    // on filtre le cache principal pour ne garder que les TURN.
+    if (this.cachedRelayOnlyIceServers.length > 0) {
+      return this.cachedRelayOnlyIceServers;
+    }
+    return this.cachedIceServers.filter((s) => {
+      const urls = Array.isArray(s.urls) ? s.urls : [s.urls];
+      return urls.some(
+        (u) => u.startsWith("turn:") || u.startsWith("turns:"),
+      );
+    });
   }
 
   /**
@@ -654,6 +641,10 @@ export class P2PManager {
       retryCount,
     });
 
+    // Précharge les credentials TURN éphémères AVANT de créer le Peer,
+    // pour que la config ICE contienne déjà notre coturn self-hosted.
+    await this.refreshIceServers();
+
     return new Promise((resolve, reject) => {
       // Timeout for peer initialization
       const initTimeout = setTimeout(() => {
@@ -661,9 +652,10 @@ export class P2PManager {
         reject(new Error("Peer initialization timeout"));
       }, 15000);
 
-      // Use standard ICE configuration with STUN and TURN servers
-      // iceTransportPolicy: 'all' allows both direct and relay connections
+      // Signaling self-hosted (PeerServer derrière Nginx HTTPS) + ICE config
+      // pointant vers notre coturn. iceTransportPolicy 'all' = direct + relay.
       this.peer = new Peer(actualPeerId, {
+        ...getPeerServerOptions(),
         debug: DEBUG ? 3 : 0, // Enable maximum PeerJS debug logging
         config: this.getPeerConfig(),
       });
@@ -3305,6 +3297,17 @@ export class P2PManager {
    * Start monitoring connection quality and auto-adjust video quality
    */
   startQualityMonitoring(): void {
+    // Rafraîchit les credentials TURN éphémères toutes les 30 min
+    // (TTL = 1h côté serveur, on renouvelle bien avant expiration).
+    if (!this.iceRefreshInterval) {
+      this.iceRefreshInterval = setInterval(
+        () => {
+          void this.refreshIceServers();
+        },
+        30 * 60 * 1000,
+      );
+    }
+
     if (this.qualityMonitorInterval) return;
 
     this.qualityMonitorInterval = setInterval(async () => {
@@ -3336,6 +3339,10 @@ export class P2PManager {
     if (this.qualityMonitorInterval) {
       clearInterval(this.qualityMonitorInterval);
       this.qualityMonitorInterval = null;
+    }
+    if (this.iceRefreshInterval) {
+      clearInterval(this.iceRefreshInterval);
+      this.iceRefreshInterval = null;
     }
   }
 
