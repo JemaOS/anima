@@ -28,6 +28,7 @@ export interface P2PMessage {
     | "media-state"
     | "hand-raised"
     | "hand-lowered"
+    | "video-filter"
     | "room-full"
     | "stream-ready"
     | "ice-candidate"
@@ -1270,6 +1271,7 @@ export class P2PManager {
       }
 
       let settled = false;
+      // eslint-disable-next-line prefer-const -- assigned later; referenced by cleanup() closure first
       let connectionTimeout: ReturnType<typeof setTimeout>;
       const cleanup = () => {
         clearTimeout(connectionTimeout);

@@ -469,6 +469,7 @@ export const VideoTile = memo(function VideoTile({
         playsInline
         muted={isLocal}
         className={hasVideo ? videoClasses : "absolute inset-0 w-full h-full opacity-0 pointer-events-none"}
+        style={participant.videoFilter ? { filter: participant.videoFilter } : undefined}
         onError={handleVideoError}
         onLoadedData={handleVideoLoaded}
         onCanPlay={handleCanPlay}

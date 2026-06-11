@@ -15,6 +15,9 @@ export interface Participant {
   audioLevel?: number; // 0-1 for active speaker detection
   connectionQuality?: ConnectionQuality; // Network quality indicator
   facingMode?: "user" | "environment"; // Camera facing mode for mirroring
+  // CSS filter string for this participant's chosen video style. Each person
+  // picks their own; everyone sees it applied on that person's tile only.
+  videoFilter?: string;
 }
 
 export interface ChatMessage {

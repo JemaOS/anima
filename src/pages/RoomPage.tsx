@@ -215,6 +215,8 @@ export function RoomPage() {
 
   // Main states
   const [myId, setMyId] = useState<string>("");
+  const myIdRef = useRef<string>("");
+  myIdRef.current = myId;
   const [connected, setConnected] = useState(false);
   const [participants, dispatchParticipants] = useReducer(
     participantsReducer,
@@ -305,6 +307,10 @@ export function RoomPage() {
   const [videoStyle, setVideoStyle] = useState<VideoStyle>(() =>
     getSavedVideoStyle(),
   );
+  // Latest chosen filter, readable from stable callbacks (peer connect) without
+  // re-creating them.
+  const videoFilterRef = useRef<string>(VIDEO_STYLES[getSavedVideoStyle()].filter);
+  videoFilterRef.current = VIDEO_STYLES[videoStyle].filter;
 
   // Capture local media - extracted for reuse with adaptive constraints
   // Includes retry logic for Android devices and timeout handling
@@ -503,7 +509,14 @@ export function RoomPage() {
     console.log("[handleVideoStyleChange] Changing video style to:", style);
     setVideoStyle(style);
     saveVideoStyle(style);
-  }, []);
+    // Broadcast our chosen filter so everyone applies it on our tile.
+    p2pManager.current?.broadcast({
+      type: "video-filter",
+      data: { filter: VIDEO_STYLES[style].filter },
+      senderId: myId,
+      timestamp: Date.now(),
+    } as P2PMessage);
+  }, [myId]);
 
   // --- P2P Event Handlers ---
 
@@ -553,6 +566,17 @@ export function RoomPage() {
           },
          });
         break;
+
+      case "video-filter":
+        // A peer changed their video style; apply it on their tile only.
+        dispatchParticipants({
+          type: "UPDATE_PARTICIPANT",
+          payload: {
+            id: message.senderId,
+            updates: { videoFilter: message.data.filter || "none" },
+          },
+        });
+        break;
     }
   }, []);
 
@@ -571,6 +595,20 @@ export function RoomPage() {
         },
       },
     });
+
+    // Tell the newcomer about our current filter (if non-default) so they see
+    // it on our tile. Small delay to let the data connection settle.
+    const myFilter = videoFilterRef.current;
+    if (myFilter && myFilter !== "none") {
+      setTimeout(() => {
+        p2pManager.current?.sendMessage(peerId, {
+          type: "video-filter",
+          data: { filter: myFilter },
+          senderId: myIdRef.current,
+          timestamp: Date.now(),
+        } as P2PMessage);
+      }, 1500);
+    }
   }, []);
 
   const handlePeerDisconnected = useCallback((peerId: string) => {
@@ -1404,6 +1442,8 @@ export function RoomPage() {
       screenSharing: !!screenStream,
       handRaised,
       facingMode,
+      // Apply my own chosen filter to my own tile.
+      videoFilter: VIDEO_STYLES[videoStyle].filter,
     }),
     [
       myId,
@@ -1414,6 +1454,7 @@ export function RoomPage() {
       videoEnabled,
       handRaised,
       facingMode,
+      videoStyle,
     ],
   );
 
@@ -1535,7 +1576,6 @@ export function RoomPage() {
           localParticipant={localParticipant}
           pinnedId={pinnedId}
           onPinParticipant={setPinnedId}
-          videoFilter={VIDEO_STYLES[videoStyle].filter}
           facingMode={facingMode}
         />
       </main>

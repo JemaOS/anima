@@ -16,7 +16,6 @@ interface VideoGridProps {
   readonly localParticipant?: Participant;
   readonly pinnedId?: string | null;
   readonly onPinParticipant?: (id: string | null) => void;
-  readonly videoFilter?: string;
   readonly facingMode?: "user" | "environment";
 }
 
@@ -92,7 +91,6 @@ export const VideoGrid = memo(function VideoGrid({
   localParticipant,
   pinnedId,
   onPinParticipant,
-  videoFilter = "none",
   facingMode,
 }: VideoGridProps) {
   const screenSize = useScreenSize();
@@ -152,7 +150,6 @@ export const VideoGrid = memo(function VideoGrid({
     return (
       <div
         className="h-full flex flex-col gap-3 p-3 sm:p-4 overflow-hidden"
-        style={{ filter: videoFilter }}
       >
         {/* Main participant - takes most of the space */}
         <div className="flex-1 min-h-0 rounded-2xl overflow-hidden">
@@ -187,7 +184,6 @@ export const VideoGrid = memo(function VideoGrid({
     return (
       <div
         className="h-full w-full p-2 sm:p-3 overflow-hidden flex flex-col gap-2 sm:gap-3"
-        style={{ filter: videoFilter }}
       >
         {allParticipants.map((participant, index) => (
           <div
@@ -216,7 +212,6 @@ export const VideoGrid = memo(function VideoGrid({
     return (
       <div
         className="h-full w-full p-2 overflow-hidden"
-        style={{ filter: videoFilter }}
       >
         <div className="grid grid-cols-2 grid-rows-2 gap-2 h-full w-full">
           {allParticipants.map((participant, index) => (
@@ -240,7 +235,6 @@ export const VideoGrid = memo(function VideoGrid({
     return (
       <div
         className="h-full w-full p-2 sm:p-3 overflow-hidden"
-        style={{ filter: videoFilter }}
       >
         <div className="grid grid-cols-2 grid-rows-2 gap-2 sm:gap-3 h-full w-full">
           {allParticipants.map((participant, index) => (
@@ -263,7 +257,6 @@ export const VideoGrid = memo(function VideoGrid({
   return (
     <div
       className="h-full w-full p-2 sm:p-3 md:p-4 overflow-hidden"
-      style={{ filter: videoFilter }}
     >
       <div style={gridStyle}>
         {allParticipants.map((participant, index) => (
