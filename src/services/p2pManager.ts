@@ -28,6 +28,7 @@ export interface P2PMessage {
     | "media-state"
     | "hand-raised"
     | "hand-lowered"
+    | "reaction"
     | "room-full"
     | "stream-ready"
     | "ice-candidate"

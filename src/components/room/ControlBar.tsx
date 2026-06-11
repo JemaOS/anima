@@ -21,8 +21,19 @@ interface ControlBarProps {
   readonly onOpenParticipants: () => void;
   readonly onOpenSettings?: () => void;
   readonly onLeave: () => void;
-  readonly onOpenReactions: () => void;
+  readonly onOpenReactions: (emoji: string) => void;
 }
+
+// Emoji list shared by the reactions popover. Codepoints rendered at runtime.
+const REACTION_EMOJIS = ["1f44d", "2764-fe0f", "1f389", "1f44f", "1f602", "1f914"];
+
+const renderEmoji = (emoji: string): string =>
+  emoji.includes("-")
+    ? emoji
+        .split("-")
+        .map((code) => String.fromCodePoint(Number.parseInt(code, 16)))
+        .join("")
+    : String.fromCodePoint(Number.parseInt(emoji, 16));
 
 // Détecter si l'appareil est mobile - mémoïsé
 const isMobileDevice = () => {
@@ -37,7 +48,7 @@ const isMobileDevice = () => {
 const ReactionsButton = memo(function ReactionsButton({
   onOpenReactions,
 }: {
-  onOpenReactions: () => void;
+  onOpenReactions: (emoji: string) => void;
 }) {
   const [showReactions, setShowReactions] = useState(false);
 
@@ -45,13 +56,17 @@ const ReactionsButton = memo(function ReactionsButton({
     setShowReactions((prev) => !prev);
   }, []);
 
-  const handleReactionClick = useCallback(() => {
-    onOpenReactions();
-    setShowReactions(false);
-  }, [onOpenReactions]);
+  const handleReactionClick = useCallback(
+    (emoji: string) => {
+      // Pass the chosen emoji up so it can actually be broadcast.
+      onOpenReactions(emoji);
+      setShowReactions(false);
+    },
+    [onOpenReactions],
+  );
 
   return (
-    <div className="relative hidden lg:block shrink-0 snap-start">
+    <div className="relative shrink-0 snap-start">
       <button
         onClick={toggleReactions}
         className="w-10 h-10 sm:w-11 sm:h-11 rounded-full flex items-center justify-center transition-all duration-150 shrink-0 bg-neutral-700/80 hover:bg-neutral-600 text-white"
@@ -62,22 +77,15 @@ const ReactionsButton = memo(function ReactionsButton({
 
       {showReactions && (
         <div className="absolute bottom-12 left-1/2 -translate-x-1/2 bg-neutral-800 rounded-xl p-1.5 flex gap-0.5 shadow-lg">
-          {["1f44d", "2764-fe0f", "1f389", "1f44f", "1f602", "1f914"].map(
-            (emoji) => (
-              <button
-                key={emoji}
-                onClick={handleReactionClick}
-                className="text-lg hover:scale-125 transition-transform p-0.5"
-              >
-                {emoji.includes("-")
-                  ? emoji
-                      .split("-")
-                      .map((code) => String.fromCodePoint(Number.parseInt(code, 16)))
-                      .join("")
-                  : String.fromCodePoint(Number.parseInt(emoji, 16))}
-              </button>
-            )
-          )}
+          {REACTION_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => handleReactionClick(renderEmoji(emoji))}
+              className="text-lg hover:scale-125 transition-transform p-1"
+            >
+              {renderEmoji(emoji)}
+            </button>
+          ))}
         </div>
       )}
     </div>
@@ -279,8 +287,8 @@ export const ControlBar = memo(function ControlBar({
           />
         )}
 
-        {/* Réactions - hidden on medium and smaller screens */}
-        {!isMedium && <ReactionsButton onOpenReactions={onOpenReactions} />}
+        {/* Réactions - visible everywhere except ultra-small screens */}
+        {!isUltraSmall && <ReactionsButton onOpenReactions={onOpenReactions} />}
 
         {/* Discussion - toujours visible */}
         <ControlButton

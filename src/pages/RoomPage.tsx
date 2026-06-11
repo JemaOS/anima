@@ -225,6 +225,10 @@ export function RoomPage() {
   const [audioEnabled, setAudioEnabled] = useState(state?.audioEnabled ?? true);
   const [videoEnabled, setVideoEnabled] = useState(state?.videoEnabled ?? true);
   const [handRaised, setHandRaised] = useState(false);
+  // Floating emoji reactions currently animating on screen.
+  const [reactions, setReactions] = useState<
+    { id: string; emoji: string; senderName: string }[]
+  >([]);
   const [facingMode, setFacingMode] = useState<"user" | "environment">("user");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [duration, setDuration] = useState(0);
@@ -507,6 +511,15 @@ export function RoomPage() {
 
   // --- P2P Event Handlers ---
 
+  // Display a floating emoji reaction for a few seconds.
+  const showReaction = useCallback((emoji: string, senderName: string) => {
+    const id = generateId();
+    setReactions((prev) => [...prev, { id, emoji, senderName }]);
+    setTimeout(() => {
+      setReactions((prev) => prev.filter((r) => r.id !== id));
+    }, 4000);
+  }, []);
+
   // Handle P2P messages with reducer dispatch
   const handleP2PMessage = useCallback((message: P2PMessage) => {
     switch (message.type) {
@@ -537,6 +550,10 @@ export function RoomPage() {
         });
         break;
 
+      case "reaction":
+        showReaction(message.data.emoji, message.data.senderName || "");
+        break;
+
       case "media-state":
         dispatchParticipants({
           type: "UPDATE_PARTICIPANT",
@@ -551,10 +568,10 @@ export function RoomPage() {
               }),
             },
           },
-        });
+         });
         break;
     }
-  }, []);
+  }, [showReaction]);
 
   const handlePeerConnected = useCallback((peerId: string, peerInfo: PeerInfo) => {
     dispatchParticipants({
@@ -1344,6 +1361,21 @@ export function RoomPage() {
     } as P2PMessage);
   }, [myId]);
 
+  // Send an emoji reaction to everyone and show it locally.
+  const sendReaction = useCallback(
+    (emoji: string) => {
+      const senderName = state?.userName || "";
+      p2pManager.current?.broadcast({
+        type: "reaction",
+        data: { emoji, senderName },
+        senderId: myId,
+        timestamp: Date.now(),
+      } as P2PMessage);
+      showReaction(emoji, senderName);
+    },
+    [myId, state?.userName, showReaction],
+  );
+
   // Leave room - memoized
   const leaveRoom = useCallback(() => {
     localStreamRef.current?.getTracks().forEach((track) => track.stop());
@@ -1540,6 +1572,26 @@ export function RoomPage() {
         />
       </main>
 
+      {/* Réactions emoji flottantes */}
+      {reactions.length > 0 && (
+        <div className="pointer-events-none fixed inset-0 z-40 overflow-hidden">
+          {reactions.map((r, index) => (
+            <div
+              key={r.id}
+              className="absolute bottom-28 flex flex-col items-center animate-reaction-float"
+              style={{ left: `${15 + ((index * 17) % 70)}%` }}
+            >
+              <span className="text-5xl drop-shadow-lg">{r.emoji}</span>
+              {r.senderName && (
+                <span className="mt-1 text-xs text-white/90 bg-black/40 px-2 py-0.5 rounded-full">
+                  {r.senderName}
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Barre de contrôles */}
       <ControlBar
         audioEnabled={audioEnabled}
@@ -1570,7 +1622,7 @@ export function RoomPage() {
           setParticipantsOpen(false);
         }}
         onLeave={leaveRoom}
-        onOpenReactions={() => {}}
+        onOpenReactions={sendReaction}
       />
 
       {/* Panneaux latéraux */}
