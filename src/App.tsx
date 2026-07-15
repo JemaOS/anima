@@ -4,10 +4,12 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { HomePage, PreJoinPage, RoomPage } from "./pages";
+import { SubscriptionGuard } from "./SubscriptionGuard";
 import "./index.css";
 
 function App() {
   return (
+    <SubscriptionGuard appName="Anima">
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
@@ -16,6 +18,7 @@ function App() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
+    </SubscriptionGuard>
   );
 }
 
