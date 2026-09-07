@@ -13,7 +13,6 @@ import {
   type Lang,
   type TranslationKey,
   type TranslationParams,
-  getSystemLang,
   setCurrentLang,
 } from "./translations";
 
@@ -31,19 +30,9 @@ interface I18nContextValue {
 const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(getSystemLang);
-
-  useEffect(() => {
-    const handleLanguageChange = () => {
-      setLangState(getSystemLang());
-    };
-    window.addEventListener("languagechange", handleLanguageChange);
-    return () =>
-      window.removeEventListener(
-        "languagechange",
-        handleLanguageChange,
-      );
-  }, []);
+  // French by default for JemaOS PWAs; the LanguageSelector is a
+  // session-only override (never persisted).
+  const [lang, setLangState] = useState<Lang>("fr");
 
   useEffect(() => {
     setCurrentLang(lang);

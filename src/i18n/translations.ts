@@ -470,16 +470,9 @@ export const translations: Record<Lang, Record<TranslationKey, string>> = {
   },
 };
 
-export function getSystemLang(): Lang {
-  const browserLang =
-    navigator.language ||
-    (navigator as any).userLanguage ||
-    "fr";
-  const short = browserLang.split("-")[0].toLowerCase();
-  return short === "fr" ? "fr" : "en";
-}
-
-let currentLang: Lang = getSystemLang();
+// French by default for JemaOS PWAs; the LanguageSelector is a
+// session-only override (never persisted).
+let currentLang: Lang = "fr";
 
 export function getCurrentLang(): Lang {
   return currentLang;
