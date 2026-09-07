@@ -3,12 +3,14 @@
 
 import React from "react";
 import { Icon } from "@/components/ui";
+import { useI18n } from "@/i18n";
 import { ChatMessage, Participant } from "@/types";
 import { VideoQualityLevel } from "@/utils/videoConstraints";
 import { VideoStyle } from "@/utils/videoStyles";
 import { ChatPanel } from "./ChatPanel";
 import { ParticipantsPanel } from "./ParticipantsPanel";
 import { SettingsPanel } from "./SettingsPanel";
+import LanguageSelector from "@/components/LanguageSelector";
 
 // Re-export for backward compatibility
 export * from "@/utils/videoStyles";
@@ -49,14 +51,15 @@ export function SidePanel({
   currentVideoQuality,
   currentVideoStyle,
 }: SidePanelProps) {
+  const { t } = useI18n();
   const getTitle = () => {
     switch (type) {
       case "chat":
-        return "Discussion";
+        return t("chat");
       case "participants":
-        return "Participants";
+        return t("participants");
       case "settings":
-        return "Paramètres";
+        return t("settings");
     }
   };
 
@@ -107,12 +110,15 @@ export function SidePanel({
         <h2 className="text-lg font-medium text-white">
           {getTitle()}
         </h2>
-        <button
-          onClick={onClose}
-          className="w-8 h-8 rounded-full hover:bg-neutral-700 active:bg-neutral-600 flex items-center justify-center text-neutral-400 hover:text-white transition-all shrink-0 focus:outline-none"
-        >
-          <Icon name="close" size={20} />
-        </button>
+        <div className="flex items-center gap-2">
+          <LanguageSelector />
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full hover:bg-neutral-700 active:bg-neutral-600 flex items-center justify-center text-neutral-400 hover:text-white transition-all shrink-0 focus:outline-none"
+          >
+            <Icon name="close" size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Contenu */}

@@ -1,5 +1,6 @@
 import React from "react";
 import { Icon, Avatar } from "@/components/ui";
+import { useI18n } from "@/i18n";
 import { Participant } from "@/types";
 
 interface ParticipantsPanelProps {
@@ -11,6 +12,7 @@ export function ParticipantsPanel({
   participants,
   localParticipant,
 }: ParticipantsPanelProps) {
+  const { t } = useI18n();
   return (
     <div className="p-4 space-y-2 overflow-y-auto h-full">
       {/* Participant local */}
@@ -23,9 +25,9 @@ export function ParticipantsPanel({
           />
           <div className="flex-1">
             <p className="text-sm font-medium text-white">
-              {localParticipant.name} (Vous)
+              {localParticipant.name} {t("you")}
             </p>
-            <p className="text-xs text-neutral-400">Hôte</p>
+            <p className="text-xs text-neutral-400">{t("host")}</p>
           </div>
           <div className="flex items-center gap-2">
             {!localParticipant.audioEnabled && (
@@ -75,7 +77,7 @@ export function ParticipantsPanel({
 
       {(!participants || participants.size === 0) && !localParticipant && (
         <div className="text-center py-8">
-          <p className="text-neutral-400 text-sm">Aucun autre participant</p>
+          <p className="text-neutral-400 text-sm">{t("noOtherParticipants")}</p>
         </div>
       )}
     </div>

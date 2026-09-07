@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { Icon } from "@/components/ui";
+import { useI18n } from "@/i18n";
+import { translate, type TranslationKey } from "@/i18n/translations";
 import {
   VideoQualityLevel,
   getSavedVideoQuality,
@@ -11,6 +13,15 @@ import {
   getSavedVideoStyle,
   saveVideoStyle,
 } from "@/utils/videoStyles";
+
+const VIDEO_STYLE_LABEL_KEYS: Record<VideoStyle, TranslationKey> = {
+  normal: "styleNormal",
+  contrast: "styleContrast",
+  bright: "styleBright",
+  warm: "styleWarm",
+  cool: "styleCool",
+  bw: "styleBw",
+};
 
 interface MediaDeviceInfo {
   deviceId: string;
@@ -39,6 +50,7 @@ export function SettingsPanel({
   currentVideoStyle,
   isOpen,
 }: SettingsPanelProps) {
+  const { t } = useI18n();
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedAudioDevice, setSelectedAudioDevice] = useState<string>(
@@ -77,7 +89,11 @@ export function SettingsPanel({
         .filter((device) => device.kind === "audioinput")
         .map((device) => ({
           deviceId: device.deviceId,
-          label: device.label || `Microphone ${device.deviceId.slice(0, 5)}`,
+          label:
+            device.label ||
+            translate("microphoneDefaultLabel", {
+              id: device.deviceId.slice(0, 5),
+            }),
           kind: device.kind as "audioinput",
         }));
 
@@ -85,7 +101,11 @@ export function SettingsPanel({
         .filter((device) => device.kind === "videoinput")
         .map((device) => ({
           deviceId: device.deviceId,
-          label: device.label || `Caméra ${device.deviceId.slice(0, 5)}`,
+          label:
+            device.label ||
+            translate("cameraDefaultLabel", {
+              id: device.deviceId.slice(0, 5),
+            }),
           kind: device.kind as "videoinput",
         }));
 
@@ -167,7 +187,7 @@ export function SettingsPanel({
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm font-medium text-neutral-300">
           <Icon name="mic" size={18} className="text-neutral-400" />
-          Microphone
+          {t("microphoneLabel")}
         </label>
         {devicesLoading ? (
           <div className="w-full h-10 bg-neutral-700 rounded-lg animate-pulse" />
@@ -191,7 +211,7 @@ export function SettingsPanel({
           </select>
         ) : (
           <p className="text-sm text-neutral-500 italic">
-            Aucun microphone détecté
+            {t("noMicrophoneDetected")}
           </p>
         )}
       </div>
@@ -200,7 +220,7 @@ export function SettingsPanel({
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm font-medium text-neutral-300">
           <Icon name="videocam" size={18} className="text-neutral-400" />
-          Caméra
+          {t("cameraLabel")}
         </label>
         {devicesLoading ? (
           <div className="w-full h-10 bg-neutral-700 rounded-lg animate-pulse" />
@@ -224,7 +244,7 @@ export function SettingsPanel({
           </select>
         ) : (
           <p className="text-sm text-neutral-500 italic">
-            Aucune caméra détectée
+            {t("noCameraDetected")}
           </p>
         )}
       </div>
@@ -233,7 +253,7 @@ export function SettingsPanel({
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm font-medium text-neutral-300">
           <Icon name="tune" size={18} className="text-neutral-400" />
-          Qualité vidéo
+          {t("videoQuality")}
         </label>
         <select
           value={selectedVideoQuality}
@@ -248,23 +268,18 @@ export function SettingsPanel({
             backgroundSize: "1rem",
           }}
         >
-          <option value="auto">Auto (recommandé)</option>
-          <option value="low">Basse (économie de données)</option>
-          <option value="medium">Moyenne</option>
-          <option value="high">Haute (720p)</option>
-          <option value="ultra">Ultra (1080p 60fps)</option>
+          <option value="auto">{t("qualityAuto")}</option>
+          <option value="low">{t("qualityLow")}</option>
+          <option value="medium">{t("qualityMedium")}</option>
+          <option value="high">{t("qualityHigh")}</option>
+          <option value="ultra">{t("qualityUltra")}</option>
         </select>
         <p className="text-xs text-neutral-500">
-          {selectedVideoQuality === "auto" &&
-            "Qualité adaptée automatiquement à votre appareil"}
-          {selectedVideoQuality === "low" &&
-            "320×240 à 15 fps - Idéal pour connexions lentes"}
-          {selectedVideoQuality === "medium" &&
-            "640×480 à 24 fps - Bon équilibre qualité/performance"}
-          {selectedVideoQuality === "high" &&
-            "1280×720 à 30 fps - Meilleure qualité"}
-          {selectedVideoQuality === "ultra" &&
-            "1920×1080 à 60 fps - Qualité maximale"}
+          {selectedVideoQuality === "auto" && t("qualityAutoDesc")}
+          {selectedVideoQuality === "low" && t("qualityLowDesc")}
+          {selectedVideoQuality === "medium" && t("qualityMediumDesc")}
+          {selectedVideoQuality === "high" && t("qualityHighDesc")}
+          {selectedVideoQuality === "ultra" && t("qualityUltraDesc")}
         </p>
       </div>
 
@@ -275,13 +290,13 @@ export function SettingsPanel({
       <div className="space-y-3">
         <h3 className="text-sm font-medium text-neutral-300 flex items-center gap-2">
           <Icon name="palette" size={18} className="text-neutral-400" />
-          Apparence
+          {t("appearance")}
         </h3>
 
         {/* Styles */}
         <div className="space-y-2">
           <label className="text-xs text-neutral-400 flex items-center gap-2">
-            Styles
+            {t("styles")}
             <Icon
               name="monochrome"
               size={14}
@@ -307,7 +322,7 @@ export function SettingsPanel({
                   }
                   transition-all
                 `}
-                title={style.label}
+                title={t(VIDEO_STYLE_LABEL_KEYS[key])}
               >
                 <Icon
                   name={style.icon}
@@ -318,7 +333,7 @@ export function SettingsPanel({
             ))}
           </div>
           <p className="text-xs text-neutral-500">
-            {VIDEO_STYLES[selectedVideoStyle].label}
+            {t(VIDEO_STYLE_LABEL_KEYS[selectedVideoStyle])}
           </p>
         </div>
       </div>
@@ -330,7 +345,7 @@ export function SettingsPanel({
       <div className="space-y-2">
         <label className="flex items-center gap-2 text-sm font-medium text-neutral-300">
           <Icon name="link" size={18} className="text-neutral-400" />
-          Lien de la réunion
+          {t("meetingLink")}
         </label>
         <button
           onClick={copyMeetingLink}
@@ -341,7 +356,7 @@ export function SettingsPanel({
           }`}
         >
           <Icon name={linkCopied ? "check" : "copy"} size={18} />
-          {linkCopied ? "Lien copié !" : "Copier le lien de la réunion"}
+          {linkCopied ? t("linkCopiedToast") : t("copyMeetingLink")}
         </button>
       </div>
 
@@ -357,14 +372,14 @@ export function SettingsPanel({
             size={18}
             className={devicesLoading ? "animate-spin" : ""}
           />
-          Actualiser les périphériques
+          {t("refreshDevices")}
         </button>
       </div>
 
       {/* Info */}
       <div className="pt-4 border-t border-neutral-700">
         <p className="text-xs text-neutral-500 text-center">
-          Les changements de périphériques seront appliqués immédiatement
+          {t("deviceChangesAppliedImmediately")}
         </p>
       </div>
     </div>

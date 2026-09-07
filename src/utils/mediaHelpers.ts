@@ -4,6 +4,7 @@ import {
   VideoQualityLevel,
 } from "./videoConstraints";
 import { withTimeoutRace } from "./retry";
+import { translate } from "@/i18n/translations";
 
 // Detect if device is Android
 export const isAndroid = () => /Android/i.test(navigator.userAgent);
@@ -70,30 +71,30 @@ async function attemptFallbackCapture(
       .forEach((track) => (track.enabled = videoOn));
     return {
       stream: fallbackStream,
-      error: "Caméra non disponible, essai avec la caméra par défaut...",
+      error: translate("cameraUnavailableFallback"),
     };
   } catch {
-    return { stream: null, error: "Erreur d'accès à la caméra" };
+    return { stream: null, error: translate("cameraAccessError") };
   }
 }
 
 function getErrorMessage(errorName: string, errorMessage?: string): string {
   if (errorName === "NotFoundError") {
-    return "Aucune caméra ou microphone détecté";
+    return translate("noCameraOrMicrophoneDetected");
   }
   if (errorName === "NotAllowedError") {
-    return "Permissions refusées. Veuillez autoriser l'accès à la caméra et au microphone.";
+    return translate("permissionsDenied");
   }
   if (errorName === "NotReadableError") {
-    return "La caméra est utilisée par une autre application";
+    return translate("cameraInUse");
   }
   if (errorName === "AbortError") {
-    return "Erreur d'initialisation de la caméra";
+    return translate("cameraInitError");
   }
   if (errorMessage?.includes("timeout")) {
-    return "La caméra ne répond pas";
+    return translate("cameraNotResponding");
   }
-  return "Erreur d'accès aux périphériques";
+  return translate("deviceAccessError");
 }
 
 function getRetryStrategy(
@@ -275,7 +276,7 @@ export async function restartVideoTrack(
   }
 }
 
-// Helper function to get French camera label
+// Helper function to get localized camera label
 export const getCameraLabel = (device: MediaDeviceInfo): string => {
   const label = device.label.toLowerCase();
 
@@ -286,7 +287,7 @@ export const getCameraLabel = (device: MediaDeviceInfo): string => {
     label.includes("avant") ||
     label.includes("facing front")
   ) {
-    return "Caméra avant";
+    return translate("frontCamera");
   }
 
   // Detect back camera
@@ -297,7 +298,7 @@ export const getCameraLabel = (device: MediaDeviceInfo): string => {
     label.includes("facing back") ||
     label.includes("rear")
   ) {
-    return "Caméra arrière";
+    return translate("rearCamera");
   }
 
   // If label contains camera number, try to determine type
@@ -305,12 +306,17 @@ export const getCameraLabel = (device: MediaDeviceInfo): string => {
   const cameraMatch = label.match(/camera\s*(\d+)/i);
   if (cameraMatch) {
     const cameraNum = Number.parseInt(cameraMatch[1], 10);
-    if (cameraNum === 0) return "Caméra arrière";
-    if (cameraNum === 1) return "Caméra avant";
+    if (cameraNum === 0) return translate("rearCamera");
+    if (cameraNum === 1) return translate("frontCamera");
   }
 
   // Fallback: use original label or generic name
-  return device.label || `Caméra ${device.deviceId.slice(0, 8)}`;
+  return (
+    device.label ||
+    translate("cameraDefaultLabel", {
+      id: device.deviceId.slice(0, 8),
+    })
+  );
 };
 
 // Helper function to detect if a device is the back camera

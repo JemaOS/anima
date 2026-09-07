@@ -3,6 +3,7 @@
 
 import React, { useState, useCallback, memo, useMemo, useEffect } from "react";
 import { Icon } from "@/components/ui";
+import { useI18n } from "@/i18n";
 
 interface ControlBarProps {
   readonly audioEnabled: boolean;
@@ -111,6 +112,7 @@ export const ControlBar = memo(function ControlBar({
 }: ControlBarProps) {
   // Mémoriser la détection mobile pour éviter les recalculs
   const isMobile = useMemo(() => isMobileDevice(), []);
+  const { t } = useI18n();
 
   // Track screen width for responsive button visibility
   const [screenWidth, setScreenWidth] = useState(typeof globalThis !== 'undefined' ? globalThis.innerWidth : 1024);
@@ -174,7 +176,7 @@ export const ControlBar = memo(function ControlBar({
         <ControlButton
           onClick={onToggleAudio}
           icon={audioEnabled ? "mic" : "mic-off"}
-          title={audioEnabled ? "Couper le micro" : "Activer le micro"}
+          title={audioEnabled ? t("muteMic") : t("unmuteMic")}
           variant={audioEnabled ? "neutral" : "danger"}
           isActive={!audioEnabled}
         />
@@ -183,7 +185,7 @@ export const ControlBar = memo(function ControlBar({
         <ControlButton
           onClick={onToggleVideo}
           icon={videoEnabled ? "videocam" : "videocam-off"}
-          title={videoEnabled ? "Désactiver la caméra" : "Activer la caméra"}
+          title={videoEnabled ? t("disableCamera") : t("enableCamera")}
           variant={videoEnabled ? "neutral" : "danger"}
           isActive={!videoEnabled}
         />
@@ -193,7 +195,7 @@ export const ControlBar = memo(function ControlBar({
           <ControlButton
             onClick={onSwitchCamera}
             icon="flip-camera"
-            title={facingMode === "user" ? "Caméra arrière" : "Caméra avant"}
+            title={facingMode === "user" ? t("rearCamera") : t("frontCamera")}
           />
         )}
 
@@ -202,7 +204,7 @@ export const ControlBar = memo(function ControlBar({
           <ControlButton
             onClick={handleToggleScreenShare}
             icon="present-to-all"
-            title={isScreenSharing ? "Arrêter" : "Partager"}
+            title={isScreenSharing ? t("stop") : t("share")}
             variant="primary"
             isActive={isScreenSharing}
           />
@@ -212,7 +214,7 @@ export const ControlBar = memo(function ControlBar({
         <ControlButton
           onClick={onOpenParticipants}
           icon="people"
-          title="Participants"
+          title={t("participants")}
         />
 
         {/* Main levée - hidden on small screens and foldables */}
@@ -220,7 +222,7 @@ export const ControlBar = memo(function ControlBar({
           <ControlButton
             onClick={handleToggleHand}
             icon="pan-tool"
-            title={handRaised ? "Baisser" : "Lever"}
+            title={handRaised ? t("lowerHand") : t("raiseHand")}
             variant="warning"
             isActive={handRaised}
           />
@@ -230,7 +232,7 @@ export const ControlBar = memo(function ControlBar({
         <ControlButton
           onClick={onOpenChat}
           icon="chat"
-          title="Discussion"
+          title={t("chat")}
         />
 
         {/* Paramètres - only on larger screens, hidden on foldables */}
@@ -238,7 +240,7 @@ export const ControlBar = memo(function ControlBar({
           <ControlButton
             onClick={onOpenSettings}
             icon="settings"
-            title="Paramètres"
+            title={t("settings")}
           />
         )}
 
@@ -249,7 +251,7 @@ export const ControlBar = memo(function ControlBar({
         <ControlButton
           onClick={onLeave}
           icon="call-end"
-          title="Quitter"
+          title={t("leave")}
           variant="danger"
         />
       </div>

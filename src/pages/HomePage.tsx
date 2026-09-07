@@ -4,6 +4,8 @@
 import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Icon } from "@/components/ui";
+import LanguageSelector from "@/components/LanguageSelector";
+import { useI18n } from "@/i18n";
 import {
   generateRoomCode,
   getRecentRooms,
@@ -13,6 +15,7 @@ import {
 
 export function HomePage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [roomCode, setRoomCode] = useState("");
   const [error, setError] = useState("");
   const [recentRoomsVersion, setRecentRoomsVersion] = useState(0);
@@ -33,12 +36,12 @@ export function HomePage() {
     const cleanCode = roomCode.trim().toLowerCase();
 
     if (!cleanCode) {
-      setError("Entrez un code de reunion");
+      setError(t("enterRoomCode"));
       return;
     }
 
     if (!isValidRoomCode(cleanCode)) {
-      setError("Code invalide. Format: xxx-yyyy-zzz");
+      setError(t("invalidRoomCodeFormat"));
       return;
     }
 
@@ -66,6 +69,11 @@ export function HomePage() {
         }}
       />
 
+      {/* Language selector */}
+      <div className="absolute top-4 right-4 z-20">
+        <LanguageSelector />
+      </div>
+
       {/* Main content - centered with flex */}
       <div className="relative z-10 flex-1 flex flex-col items-center justify-center px-4 py-6">
         {/* Logo and branding - compact */}
@@ -77,7 +85,7 @@ export function HomePage() {
           <h1 className="text-2xl font-semibold text-white tracking-tight mb-1">
             Anima
           </h1>
-          <p className="text-sm text-gray-500">Visioconférence P2P sécurisée</p>
+          <p className="text-sm text-gray-500">{t("secureP2pCalling")}</p>
         </div>
 
         {/* Main card - compact */}
@@ -89,13 +97,13 @@ export function HomePage() {
               className="w-full flex items-center justify-center gap-2 rounded-xl py-3 bg-[#8f88ed] hover:bg-[#7b74d9] text-white font-medium transition-colors duration-200 text-sm"
             >
               <Icon name="video-call" size={20} className="text-white" />
-              <span>Nouvelle réunion</span>
+              <span>{t("newMeeting")}</span>
             </button>
 
             {/* Divider */}
             <div className="flex items-center gap-3 my-4">
               <div className="flex-1 h-px bg-white/[0.08]" />
-              <span className="text-gray-600 text-xs">ou</span>
+              <span className="text-gray-600 text-xs">{t("or")}</span>
               <div className="flex-1 h-px bg-white/[0.08]" />
             </div>
 
@@ -106,7 +114,7 @@ export function HomePage() {
                   type="text"
                   value={roomCode}
                   onChange={handleCodeChange}
-                  placeholder="Code de réunion"
+                  placeholder={t("meetingCodePlaceholder")}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleJoinRoom();
                   }}
@@ -123,7 +131,7 @@ export function HomePage() {
                 onClick={handleJoinRoom}
                 className="w-full h-11 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] rounded-xl text-gray-300 font-medium transition-colors duration-200 text-sm"
               >
-                Rejoindre
+                {t("join")}
               </button>
             </div>
           </div>
@@ -137,18 +145,18 @@ export function HomePage() {
           </div>
           <div className="flex items-center gap-1.5">
             <Icon name="person" size={14} className="text-emerald-500" />
-            <span>Sans compte</span>
+            <span>{t("noAccount")}</span>
           </div>
           <div className="flex items-center gap-1.5">
             <Icon name="lock" size={14} className="text-amber-500" />
-            <span>Zéro logs</span>
+            <span>{t("zeroLogs")}</span>
           </div>
         </div>
 
         {/* Recent rooms - compact */}
         {recentRooms.length > 0 && (
           <div className="mt-5 w-full max-w-sm">
-            <p className="text-gray-600 text-xs mb-2">Récents</p>
+            <p className="text-gray-600 text-xs mb-2">{t("recents")}</p>
             <div className="space-y-1.5">
               {recentRooms.map((room) => (
                 <div
@@ -168,8 +176,8 @@ export function HomePage() {
                     <button
                       onClick={(e) => handleDeleteRoom(e, room.code)}
                       className="p-1.5 rounded-md hover:bg-red-500/20 text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
-                      title="Supprimer"
-                      aria-label="Supprimer cette réunion"
+                      title={t("delete")}
+                      aria-label={t("deleteThisMeeting")}
                     >
                       <Icon name="close" size={12} />
                     </button>
@@ -194,7 +202,7 @@ export function HomePage() {
       {/* Footer - fixed at bottom */}
       <div className="relative z-10 pb-4 text-center">
         <p className="text-gray-700 text-xs">
-          Développé par{" "}
+          {t("developedBy")}{" "}
           <a
             href="https://www.jematechnology.fr/"
             target="_blank"
@@ -203,7 +211,7 @@ export function HomePage() {
           >
             Jema Technology
           </a>{" "}
-          © 2025 • Open Source & sous licence AGPL
+          {t("licenseLine")}
         </p>
       </div>
     </div>

@@ -4,6 +4,8 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button, Icon, Avatar } from "@/components/ui";
+import { useI18n } from "@/i18n";
+import { translate } from "@/i18n/translations";
 import { saveRecentRoom } from "@/utils/helpers";
 import {
   getOptimalVideoConstraints,
@@ -21,6 +23,7 @@ import {
 
 export function PreJoinPage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const { code } = useParams<{ code: string }>();
   const [searchParams] = useSearchParams();
   const isHost = searchParams.get("host") === "true";
@@ -46,14 +49,14 @@ export function PreJoinPage() {
   const networkStatus = useNetworkStatus({
     onOnline: () => {
       console.log("[PreJoinPage] 🌐 Network restored");
-      if (error?.includes("réseau") || error?.includes("network")) {
+      if (error === t("networkLost")) {
         setError(null);
         initializeMedia();
       }
     },
     onOffline: () => {
       console.log("[PreJoinPage] 🌐 Network lost");
-      setError("Connexion réseau perdue. Vérifiez votre connexion internet.");
+      setError(t("networkLost"));
     },
   });
 
@@ -72,7 +75,7 @@ export function PreJoinPage() {
       }
 
       if (cameraPermission?.state === "denied" || micPermission?.state === "denied") {
-        setError("Permissions refusées. Veuillez autoriser l'accès à la caméra et au microphone dans les paramètres de votre navigateur.");
+        setError(translate("permissionsDeniedInSettings"));
         return false;
       }
 
@@ -98,7 +101,9 @@ export function PreJoinPage() {
       (streamError.includes("occupée") ||
         streamError.includes("timeout") ||
         streamError.includes("interrompue") ||
-        streamError.includes("Erreur")) &&
+        streamError.includes(t("cameraAccessError")) ||
+        streamError.includes(t("cameraInitError")) ||
+        streamError.includes(t("deviceAccessError"))) &&
       retryCount < maxMediaRetries
     ) {
       setTimeout(() => {
@@ -110,7 +115,7 @@ export function PreJoinPage() {
   const initializeMedia = async (deviceIdOverride?: string, retryCount: number = 0) => {
     try {
       if (!networkStatus.isOnline) {
-        setError("Pas de connexion internet. Vérifiez votre réseau.");
+        setError(t("noInternetConnection"));
         return;
       }
 
@@ -138,7 +143,7 @@ export function PreJoinPage() {
       }
     } catch (err: any) {
       console.error("Media initialization error:", err);
-      setError("Erreur inattendue lors de l'initialisation média.");
+      setError(t("unexpectedMediaInitError"));
     }
     return null;
   };
@@ -242,7 +247,7 @@ export function PreJoinPage() {
       setVideoEnabled(true);
     } catch (error) {
       console.error("Failed to re-enable camera:", error);
-      setError("Impossible de réactiver la caméra. Veuillez réessayer.");
+      setError(t("cannotReenableCamera"));
     }
   };
 
@@ -299,7 +304,7 @@ export function PreJoinPage() {
       });
     } catch (err: any) {
       console.error("Error joining room:", err);
-      setError(err.message || "Erreur lors de la connexion à la réunion.");
+      setError(err.message || t("joinMeetingError"));
       setIsJoining(false);
       isNavigatingRef.current = false;
     }
@@ -376,7 +381,7 @@ export function PreJoinPage() {
 
       <footer className="py-4 text-center border-t border-neutral-800 bg-neutral-900">
         <p className="text-neutral-500 text-xs">
-          Développé par{" "}
+          {t("developedBy")}{" "}
           <a
             href="https://www.jematechnology.fr/"
             target="_blank"
@@ -385,7 +390,7 @@ export function PreJoinPage() {
           >
             Jema Technology
           </a>{" "}
-          © 2025 • Open Source & sous licence AGPL
+          {t("licenseLine")}
         </p>
       </footer>
     </div>
@@ -436,11 +441,11 @@ function validateJoinInputs(
 ): boolean {
   if (!userName.trim() || isJoining) return false;
   if (!code || code.length < 3) {
-    setError("Code de réunion invalide.");
+    setError(translate("invalidMeetingCode"));
     return false;
   }
   if (!networkStatus.isOnline) {
-    setError("Pas de connexion internet. Vérifiez votre réseau.");
+    setError(translate("noInternetConnection"));
     return false;
   }
   return true;
@@ -465,15 +470,11 @@ async function ensurePermissions(
     } catch (permErr: any) {
       console.error("[PreJoinPage] Permission error:", permErr);
       if (permErr.name === "NotAllowedError") {
-        setError(
-          "Veuillez autoriser l'accès à la caméra et au microphone pour rejoindre la réunion."
-        );
+        setError(translate("allowCameraMicToJoin"));
       } else if (permErr.message?.includes("timeout")) {
-        setError(
-          "Délai dépassé lors de la vérification des permissions. Vérifiez que votre caméra n'est pas utilisée par une autre application."
-        );
+        setError(translate("permissionCheckTimeout"));
       } else {
-        setError("Impossible d'accéder à la caméra ou au microphone.");
+        setError(translate("cannotAccessCameraOrMic"));
       }
       return false;
     }
@@ -506,32 +507,35 @@ const PreJoinHeader = ({
   copied: boolean;
   onBack: () => void;
   onCopy: () => void;
-}) => (
-  <header className="h-16 px-6 flex items-center justify-between">
-    <button
-      onClick={onBack}
-      className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors"
-    >
-      <Icon name="arrow-back" size={24} />
-      <span>Retour</span>
-    </button>
-
-    <div className="flex items-center gap-2 text-neutral-400">
-      <span className="font-mono text-sm">{code}</span>
+}) => {
+  const { t } = useI18n();
+  return (
+    <header className="h-16 px-6 flex items-center justify-between">
       <button
-        onClick={onCopy}
-        className="p-2 hover:bg-neutral-800 rounded-full transition-colors"
-        title="Copier le code"
+        onClick={onBack}
+        className="flex items-center gap-2 text-neutral-400 hover:text-white transition-colors"
       >
-        <Icon
-          name={copied ? "check" : "copy"}
-          size={18}
-          className={copied ? "text-success-500" : ""}
-        />
+        <Icon name="arrow-back" size={24} />
+        <span>{t("back")}</span>
       </button>
-    </div>
-  </header>
-);
+
+      <div className="flex items-center gap-2 text-neutral-400">
+        <span className="font-mono text-sm">{code}</span>
+        <button
+          onClick={onCopy}
+          className="p-2 hover:bg-neutral-800 rounded-full transition-colors"
+          title={t("copyCode")}
+        >
+          <Icon
+            name={copied ? "check" : "copy"}
+            size={18}
+            className={copied ? "text-success-500" : ""}
+          />
+        </button>
+      </div>
+    </header>
+  );
+};
 
 const VideoPreview = ({
   videoRef,
@@ -557,98 +561,99 @@ const VideoPreview = ({
   onToggleAudio: () => void;
   onToggleVideo: () => void;
   onRetry: () => void;
-}) => (
-  // Fixed 16:9 frame. The video is fitted inside with object-contain so any
-  // camera format (portrait or landscape) shows fully without distorting the
-  // frame or hiding the controls.
-  <div className="aspect-video bg-neutral-800 rounded-xl overflow-hidden relative w-full">
-    {videoEnabled && stream ? (
-      <video
-        ref={videoRef}
-        autoPlay
-        playsInline
-        muted
-        className="w-full h-full object-contain"
-        style={{ transform: isFrontCamera ? "scaleX(-1)" : "none" }}
-      />
-    ) : (
-      <div className="absolute inset-0 flex items-center justify-center">
-        <Avatar name={userName || "Anonyme"} id="local" size="xl" />
+}) => {
+  const { t } = useI18n();
+  return (
+    // Fixed 16:9 frame. The video is fitted inside with object-contain so any
+    // camera format (portrait or landscape) shows fully without distorting the
+    // frame or hiding the controls.
+    <div className="aspect-video bg-neutral-800 rounded-xl overflow-hidden relative w-full">
+      {videoEnabled && stream ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full h-full object-contain"
+          style={{ transform: isFrontCamera ? "scaleX(-1)" : "none" }}
+        />
+      ) : (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <Avatar name={userName || t("anonymous")} id="local" size="xl" />
+        </div>
+      )}
+
+      <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+        <button
+          onClick={onToggleAudio}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+            audioEnabled
+              ? "bg-neutral-700/80 hover:bg-neutral-600/80 text-white"
+              : "bg-danger-500 hover:bg-danger-400 text-white"
+          }`}
+        >
+          <Icon name={audioEnabled ? "mic" : "mic-off"} size={24} />
+        </button>
+
+        <button
+          onClick={onToggleVideo}
+          className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
+            videoEnabled
+              ? "bg-neutral-700/80 hover:bg-neutral-600/80 text-white"
+              : "bg-danger-500 hover:bg-danger-400 text-white"
+          }`}
+        >
+          <Icon name={videoEnabled ? "videocam" : "videocam-off"} size={24} />
+        </button>
       </div>
-    )}
 
-    <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
-      <button
-        onClick={onToggleAudio}
-        className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-          audioEnabled
-            ? "bg-neutral-700/80 hover:bg-neutral-600/80 text-white"
-            : "bg-danger-500 hover:bg-danger-400 text-white"
-        }`}
-      >
-        <Icon name={audioEnabled ? "mic" : "mic-off"} size={24} />
-      </button>
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-neutral-900/90 p-4">
+          <div className="text-center max-w-xs">
+            <Icon name="videocam-off" size={48} className="text-danger-500 mx-auto mb-4" />
+            <p className="text-white text-sm mb-2">{error}</p>
 
-      <button
-        onClick={onToggleVideo}
-        className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${
-          videoEnabled
-            ? "bg-neutral-700/80 hover:bg-neutral-600/80 text-white"
-            : "bg-danger-500 hover:bg-danger-400 text-white"
-        }`}
-      >
-        <Icon name={videoEnabled ? "videocam" : "videocam-off"} size={24} />
-      </button>
-    </div>
+            {!networkStatus.isOnline && (
+              <p className="text-warning-400 text-xs mb-3">{t("offlineWarning")}</p>
+            )}
 
-    {error && (
-      <div className="absolute inset-0 flex items-center justify-center bg-neutral-900/90 p-4">
-        <div className="text-center max-w-xs">
-          <Icon name="videocam-off" size={48} className="text-danger-500 mx-auto mb-4" />
-          <p className="text-white text-sm mb-2">{error}</p>
-
-          {!networkStatus.isOnline && (
-            <p className="text-warning-400 text-xs mb-3">⚠️ Vous êtes hors ligne</p>
-          )}
-
-          <div className="flex gap-2 justify-center">
-            <Button
-              onClick={onRetry}
-              variant="secondary"
-              size="sm"
-              className="mt-2"
-              disabled={!networkStatus.isOnline}
-            >
-              Réessayer
-            </Button>
-
-            {(error.includes("permission") || error.includes("Permission")) && (
+            <div className="flex gap-2 justify-center">
               <Button
-                onClick={() => {
-                  if (navigator.permissions) {
-                    navigator.permissions
-                      .query({ name: "camera" as PermissionName })
-                      .then(() => onRetry())
-                      .catch(() =>
-                        alert(
-                          "Veuillez autoriser l'accès à la caméra dans les paramètres de votre navigateur."
-                        )
-                      );
-                  }
-                }}
-                variant="primary"
+                onClick={onRetry}
+                variant="secondary"
                 size="sm"
                 className="mt-2"
+                disabled={!networkStatus.isOnline}
               >
-                Autoriser
+                {t("retry")}
               </Button>
-            )}
+
+              {(error.includes("permission") || error.includes("Permission")) && (
+                <Button
+                  onClick={() => {
+                    if (navigator.permissions) {
+                      navigator.permissions
+                        .query({ name: "camera" as PermissionName })
+                        .then(() => onRetry())
+                        .catch(() =>
+                          alert(t("allowCameraInSettings"))
+                        );
+                    }
+                  }}
+                  variant="primary"
+                  size="sm"
+                  className="mt-2"
+                >
+                  {t("allow")}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-    )}
-  </div>
-);
+      )}
+    </div>
+  );
+};
 
 const DeviceSelectors = ({
   devices,
@@ -663,6 +668,7 @@ const DeviceSelectors = ({
   onVideoDeviceChange: (id: string) => void;
   onAudioDeviceChange: (id: string) => void;
 }) => {
+  const { t } = useI18n();
   const videoDevices = devices.filter((d) => d.kind === "videoinput");
   const audioDevices = devices.filter((d) => d.kind === "audioinput");
 
@@ -690,7 +696,7 @@ const DeviceSelectors = ({
         >
           {audioDevices.map((device) => (
             <option key={device.deviceId} value={device.deviceId}>
-              {device.label || `Micro ${device.deviceId.slice(0, 8)}`}
+              {device.label || t("micDefaultLabel", { id: device.deviceId.slice(0, 8) })}
             </option>
           ))}
         </select>
@@ -722,23 +728,24 @@ const JoinForm = ({
   onJoin: () => void;
   onCopyCode: () => void;
 }) => {
+  const { t } = useI18n();
   const getButtonText = () => {
-    if (isJoining) return "Connexion...";
-    if (isHost) return "Démarrer";
-    return "Rejoindre maintenant";
+    if (isJoining) return t("connecting");
+    if (isHost) return t("start");
+    return t("joinNow");
   };
 
   return (
     <div className="w-full max-w-sm flex flex-col">
       <div className="space-y-4 flex flex-col flex-1">
         <div>
-          <label htmlFor="userName" className="block text-sm text-neutral-400 mb-2">Votre nom</label>
+          <label htmlFor="userName" className="block text-sm text-neutral-400 mb-2">{t("yourName")}</label>
           <input
             id="userName"
             type="text"
             value={userName}
             onChange={(e) => onUserNameChange(e.target.value)}
-            placeholder="Entrez votre nom"
+            placeholder={t("enterYourName")}
             className="w-full h-12 px-4 bg-neutral-800 border border-neutral-700 rounded-lg text-white placeholder:text-gray-400 focus:outline-none focus:border-primary-500"
             onKeyDown={(e) => e.key === "Enter" && onJoin()}
           />
@@ -755,13 +762,13 @@ const JoinForm = ({
 
         {isAndroid() && !permissionsGranted && !error && (
           <p className="text-xs text-warning-400 text-center mt-2">
-            ⚠️ Assurez-vous d'autoriser l'accès à la caméra et au microphone
+            {t("allowCameraMicHint")}
           </p>
         )}
 
         {isHost && (
           <div className="mt-auto p-4 bg-neutral-800 rounded-lg">
-            <p className="text-sm text-neutral-400 mb-2">Partagez ce code avec les participants:</p>
+            <p className="text-sm text-neutral-400 mb-2">{t("shareCodeWithParticipants")}</p>
             <div className="flex items-center gap-2">
               <code className="flex-1 px-3 py-2 bg-neutral-900 rounded font-mono text-white">
                 {code}

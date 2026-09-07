@@ -10,6 +10,8 @@ import React, {
   useMemo,
 } from "react";
 import { Avatar, Icon } from "@/components/ui";
+import { useI18n } from "@/i18n";
+import type { TranslationKey } from "@/i18n/translations";
 import { Participant, ConnectionQuality } from "@/types";
 
 interface VideoTileProps {
@@ -51,16 +53,18 @@ const getQualityBars = (quality?: ConnectionQuality): number => {
 };
 
 // Composant pour l'indicateur de qualité de connexion - séparé pour éviter les re-renders
-const getQualityLabel = (quality?: ConnectionQuality): string => {
+const getQualityLabelKey = (
+  quality?: ConnectionQuality,
+): TranslationKey => {
   switch (quality) {
     case "good":
-      return "Qualité vidéo : bonne";
+      return "videoQualityGood";
     case "medium":
-      return "Qualité vidéo : moyenne";
+      return "videoQualityMedium";
     case "poor":
-      return "Qualité vidéo : faible";
+      return "videoQualityPoor";
     default:
-      return "Qualité vidéo : mesure en cours";
+      return "videoQualityMeasuring";
   }
 };
 
@@ -69,9 +73,10 @@ const ConnectionQualityIndicator = memo(function ConnectionQualityIndicator({
 }: {
   quality?: ConnectionQuality;
 }) {
+  const { t } = useI18n();
   const bars = getQualityBars(quality);
   const colorClass = getQualityColor(quality);
-  const label = getQualityLabel(quality);
+  const label = t(getQualityLabelKey(quality));
 
   return (
     <div
@@ -190,6 +195,7 @@ export const VideoTile = memo(function VideoTile({
   size = "medium",
   facingMode,
 }: VideoTileProps) {
+  const { t } = useI18n();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const streamIdRef = useRef<string | null>(null);
@@ -522,7 +528,7 @@ export const VideoTile = memo(function VideoTile({
       {participant.screenSharing && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 bg-primary-500/90 px-2 py-1 rounded-full flex items-center gap-1">
           <Icon name="screen-share" size={14} className="text-white" />
-          <span className="text-white text-xs">Screen</span>
+          <span className="text-white text-xs">{t("screenLabel")}</span>
         </div>
       )}
 
@@ -537,7 +543,7 @@ export const VideoTile = memo(function VideoTile({
             />
 
             <span className="text-white text-[10px] sm:text-xs md:text-sm font-medium truncate max-w-[60px] sm:max-w-[100px] md:max-w-none">
-              {participant.name} {isLocal && "(Vous)"}
+              {participant.name} {isLocal && t("you")}
             </span>
           </div>
 
@@ -560,7 +566,7 @@ export const VideoTile = memo(function VideoTile({
         <button
           onClick={onPin}
           className="absolute top-3 right-3 bg-neutral-900/60 p-2 rounded-full opacity-0 hover:opacity-100 transition-opacity"
-          aria-label={isPinned ? "Désépingler le participant" : "Épingler le participant"}
+          aria-label={isPinned ? t("unpinParticipant") : t("pinParticipant")}
         >
           <Icon name="pin" size={16} className="text-white" />
         </button>

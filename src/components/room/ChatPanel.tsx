@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Icon, Avatar } from "@/components/ui";
+import { useI18n } from "@/i18n";
 import { ChatMessage } from "@/types";
 import { convertEmoticons } from "@/utils/chatHelpers";
 
@@ -9,6 +10,7 @@ interface ChatPanelProps {
 }
 
 export function ChatPanel({ messages, onSendMessage }: ChatPanelProps) {
+  const { t } = useI18n();
   const [messageInput, setMessageInput] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -38,10 +40,10 @@ export function ChatPanel({ messages, onSendMessage }: ChatPanelProps) {
         {messages.length === 0 ? (
           <div className="text-center py-8">
             <p className="text-neutral-400 text-sm">
-              Aucun message pour l'instant.
+              {t("noMessages")}
             </p>
             <p className="text-neutral-500 text-xs mt-1">
-              Les messages disparaissent à la fin de la réunion
+              {t("messagesDisappearOnEnd")}
             </p>
           </div>
         ) : (
@@ -80,7 +82,7 @@ export function ChatPanel({ messages, onSendMessage }: ChatPanelProps) {
             type="text"
             value={messageInput}
             onChange={(e) => setMessageInput(e.target.value)}
-            placeholder="Envoyer un message..."
+            placeholder={t("sendMessagePlaceholder")}
             className="flex-1 min-w-0 h-10 px-3 sm:px-4 bg-neutral-700 border-none rounded-full text-sm text-white placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
           <button

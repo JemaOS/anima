@@ -2,6 +2,7 @@
 // Distributed under the license specified in the root directory of this project.
 
 import React, { Component, ErrorInfo, ReactNode } from "react";
+import { translate } from "@/i18n/translations";
 
 interface Props {
   children: ReactNode;
@@ -117,14 +118,14 @@ export class ErrorBoundary extends BaseErrorBoundary {
               {isCrashLoop ? "🔥" : ":("}
             </div>
             <h1 className="text-2xl font-medium text-white mb-4">
-              {isCrashLoop 
-                ? "Problème récurrent détecté" 
-                : "Une erreur s'est produite"}
+              {isCrashLoop
+                ? translate("recurringProblemDetected")
+                : translate("anErrorOccurred")}
             </h1>
             <p className="text-neutral-400 mb-6">
               {isCrashLoop
-                ? "L'application a rencontré plusieurs erreurs consécutives. Veuillez rafraîchir la page."
-                : "L'application a rencontré un problème. Vous pouvez essayer de récupérer ou rafraîchir la page."}
+                ? translate("crashLoopDescription")
+                : translate("errorRecoveryDescription")}
             </p>
 
             {showReset && !isCrashLoop && (
@@ -133,13 +134,13 @@ export class ErrorBoundary extends BaseErrorBoundary {
                   onClick={this.handleReset}
                   className="px-6 py-3 bg-primary-500 hover:bg-primary-400 text-white rounded-full font-medium transition-colors"
                 >
-                  Réessayer
+                  {translate("retry")}
                 </button>
                 <button
                   onClick={this.handleReload}
                   className="px-6 py-3 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full font-medium transition-colors"
                 >
-                  Rafraîchir
+                  {translate("refresh")}
                 </button>
               </div>
             )}
@@ -149,14 +150,14 @@ export class ErrorBoundary extends BaseErrorBoundary {
                 onClick={this.handleReload}
                 className="px-6 py-3 bg-primary-500 hover:bg-primary-400 text-white rounded-full font-medium transition-colors"
               >
-                Rafraîchir la page
+                {translate("refreshPage")}
               </button>
             )}
 
             {error && (
               <details className="mt-6 text-left">
                 <summary className="text-neutral-500 cursor-pointer hover:text-neutral-400">
-                  Détails techniques
+                  {translate("technicalDetails")}
                 </summary>
                 <div className="mt-2 space-y-2">
                   <pre className="p-4 bg-neutral-800 rounded-lg text-xs text-neutral-400 overflow-auto max-h-40">
@@ -221,30 +222,29 @@ export class RoomErrorBoundary extends BaseErrorBoundary {
           <div className="max-w-md text-center">
             <div className="text-6xl mb-4">📹</div>
             <h1 className="text-2xl font-medium text-white mb-4">
-              Problème dans l'appel
+              {translate("callProblem")}
             </h1>
             <p className="text-neutral-400 mb-6">
-              Une erreur est survenue pendant la visioconférence. 
-              Vous pouvez réessayer ou quitter la réunion.
+              {translate("callErrorDescription")}
             </p>
             <div className="flex gap-3 justify-center">
               <button
                 onClick={this.handleReset}
                 className="px-6 py-3 bg-primary-500 hover:bg-primary-400 text-white rounded-full font-medium transition-colors"
               >
-                Réessayer
+                {translate("retry")}
               </button>
               <button
                 onClick={this.handleLeaveRoom}
                 className="px-6 py-3 bg-danger-500 hover:bg-danger-400 text-white rounded-full font-medium transition-colors"
               >
-                Quitter la réunion
+                {translate("leaveMeeting")}
               </button>
             </div>
             {error && (
               <details className="mt-6 text-left">
                 <summary className="text-neutral-500 cursor-pointer">
-                  Détails techniques
+                  {translate("technicalDetails")}
                 </summary>
                 <pre className="mt-2 p-4 bg-neutral-800 rounded-lg text-xs text-neutral-400 overflow-auto">
                   {error.toString()}
@@ -280,12 +280,12 @@ export class VideoErrorBoundary extends BaseErrorBoundary {
         <div className="w-full h-full bg-neutral-800 rounded-lg flex items-center justify-center">
           <div className="text-center p-4">
             <div className="text-4xl mb-2">📹</div>
-            <p className="text-neutral-400 text-sm">Erreur vidéo</p>
+            <p className="text-neutral-400 text-sm">{translate("videoError")}</p>
             <button
               onClick={this.handleReset}
               className="mt-2 px-3 py-1 bg-neutral-700 hover:bg-neutral-600 text-white text-xs rounded transition-colors"
             >
-              Réessayer
+              {translate("retry")}
             </button>
           </div>
         </div>

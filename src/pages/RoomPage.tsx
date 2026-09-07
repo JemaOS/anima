@@ -17,6 +17,8 @@ import {
   saveVideoStyle,
 } from "@/components/room/SidePanel";
 import { Icon } from "@/components/ui";
+import { useI18n } from "@/i18n";
+import { translate } from "@/i18n/translations";
 import { Participant, ChatMessage, ConnectionQuality } from "@/types";
 import { generateId, formatDuration } from "@/utils/helpers";
 import {
@@ -109,7 +111,7 @@ function handleSetStream(
     const newState = new Map(state);
     newState.set(payload.id, {
       id: payload.id,
-      name: "Connecting...",
+      name: translate("connectingInProgress"),
       stream: payload.stream,
       audioEnabled: true,
       videoEnabled: true,
@@ -201,6 +203,7 @@ function participantsReducer(
 
 export function RoomPage() {
   const navigate = useNavigate();
+  const { t, lang } = useI18n();
   const { code } = useParams<{ code: string }>();
   const location = useLocation();
   const state = location.state as LocationState | null;
@@ -247,12 +250,12 @@ export function RoomPage() {
   const networkStatus = useNetworkStatus({
     onOnline: () => {
       console.log("[RoomPage] 🌐 Network restored");
-      setMediaError("Connexion réseau restaurée");
+      setMediaError(t("networkRestored"));
       setTimeout(() => setMediaError(null), 3000);
     },
     onOffline: () => {
       console.log("[RoomPage] 🌐 Network lost");
-      setMediaError("Connexion réseau perdue. Reconnexion en cours...");
+      setMediaError(t("networkLostReconnecting"));
     },
   });
 
@@ -343,7 +346,7 @@ export function RoomPage() {
       if (error) {
         setMediaError(error);
         // If it's a warning (like fallback), we might still have a stream
-        if (error.includes("essai avec la caméra par défaut")) {
+        if (error.includes(translate("cameraFallbackHint"))) {
           setTimeout(() => setMediaError(null), 2000);
         }
       }
@@ -425,7 +428,12 @@ export function RoomPage() {
       } catch (error) {
         console.error("Error changing device:", error);
         setMediaError(
-          `Erreur lors du changement de ${type === "audio" ? "microphone" : "caméra"}`,
+          translate("errorChangingDevice", {
+            device:
+              type === "audio"
+                ? translate("microphone")
+                : translate("camera"),
+          }),
         );
         setTimeout(() => setMediaError(null), 3000);
       }
@@ -496,7 +504,7 @@ export function RoomPage() {
             "[handleVideoQualityChange] Error applying video quality:",
             error,
           );
-          setMediaError("Erreur lors du changement de qualité vidéo");
+          setMediaError(translate("errorChangingVideoQuality"));
           setTimeout(() => setMediaError(null), 3000);
         }
       }
@@ -682,10 +690,10 @@ export function RoomPage() {
     });
 
     if (iceState === ICEConnectionState.FAILED) {
-      setMediaError("Problème de connexion réseau. Tentative de reconnexion...");
+      setMediaError(translate("networkIssueReconnecting"));
       setTimeout(() => setMediaError(null), 5000);
     } else if (iceState === ICEConnectionState.DISCONNECTED) {
-      setMediaError("Connexion instable. Reconnexion en cours...");
+      setMediaError(translate("unstableConnectionReconnecting"));
       setTimeout(() => setMediaError(null), 3000);
     }
   }, []);
@@ -710,7 +718,7 @@ export function RoomPage() {
 
   const handleRoomFull = useCallback(() => {
     setRoomFullError(true);
-    setMediaError("Réunion complète. Maximum 8 participants autorisés.");
+    setMediaError(translate("roomFullToast"));
   }, []);
 
   const handleAudioLevel = useCallback((peerId: string, level: number) => {
@@ -896,7 +904,10 @@ export function RoomPage() {
         // If we haven't exceeded max attempts, retry initialization
         if (initAttempts < maxInitAttempts - 1) {
           console.log(`[RoomPage] Retrying initialization (${initAttempts + 1}/${maxInitAttempts})`);
-          setMediaError(`Erreur de connexion. Nouvelle tentative ${initAttempts + 2}/${maxInitAttempts}...`);
+          setMediaError(translate("connectionRetryAttempt", {
+            attempt: initAttempts + 2,
+            max: maxInitAttempts,
+          }));
           
           // Wait before retrying
           await new Promise(resolve => setTimeout(resolve, 2000));
@@ -907,7 +918,7 @@ export function RoomPage() {
         
         setConnected(true); // Allow UI even if peer fails
         setConnectionStatus("failed");
-        setMediaError("Erreur de connexion persistante. Veuillez rafraîchir la page ou vérifier votre connexion.");
+        setMediaError(translate("persistentConnectionError"));
         initializationComplete.current = true; // Still mark as complete to prevent infinite retries
       }
     };
@@ -1030,7 +1041,7 @@ export function RoomPage() {
         } as P2PMessage);
       } else {
         console.error("[toggleVideo] Error re-acquiring camera:", error);
-        setMediaError("Erreur lors de la réactivation de la caméra");
+        setMediaError(translate("errorReenablingCamera"));
         setTimeout(() => setMediaError(null), 3000);
       }
     } else {
@@ -1133,8 +1144,8 @@ export function RoomPage() {
       console.error("Error switching camera:", error);
       setMediaError(
         newFacingMode === "environment"
-          ? "Caméra arrière non disponible"
-          : "Caméra avant non disponible",
+          ? translate("rearCameraUnavailable")
+          : translate("frontCameraUnavailable"),
       );
       setTimeout(() => setMediaError(null), 3000);
     }
@@ -1234,7 +1245,7 @@ export function RoomPage() {
     // Check if getDisplayMedia is supported
     if (!navigator.mediaDevices?.getDisplayMedia) {
       console.log("[startScreenShare] ❌ getDisplayMedia not supported");
-      setMediaError("Partage d'écran non supporté sur cet appareil");
+      setMediaError(translate("screenShareNotSupported"));
       setTimeout(() => setMediaError(null), 3000);
       return;
     }
@@ -1323,9 +1334,9 @@ export function RoomPage() {
       }
       // For other errors, show a helpful message
       if (error.name === "NotSupportedError" || error.name === "TypeError") {
-        setMediaError("Partage d'écran non supporté sur cet appareil");
+        setMediaError(translate("screenShareNotSupported"));
       } else {
-        setMediaError("Erreur lors du partage d'écran");
+        setMediaError(translate("screenShareError"));
       }
       setTimeout(() => setMediaError(null), 3000);
     }
@@ -1352,7 +1363,7 @@ export function RoomPage() {
         {
           id: generateId(),
           senderId: myId,
-          senderName: state?.userName || "Me",
+          senderName: state?.userName || translate("me"),
           content,
           timestamp: Date.now(),
         },
@@ -1435,7 +1446,7 @@ export function RoomPage() {
   const localParticipant: Participant = React.useMemo(
     () => ({
       id: myId,
-      name: state?.userName || "Me",
+      name: state?.userName || translate("me"),
       stream: screenStream || localStream || undefined,
       audioEnabled,
       videoEnabled,
@@ -1472,10 +1483,10 @@ export function RoomPage() {
         <div className="max-w-md text-center">
           <div className="text-6xl mb-4">🔌</div>
           <h1 className="text-2xl font-medium text-white mb-4">
-            Impossible de se connecter
+            {t("cannotConnect")}
           </h1>
           <p className="text-neutral-400 mb-6">
-            {initError?.message || "La connexion à la réunion a échoué après plusieurs tentatives."}
+            {initError?.message || t("connectionFailedAfterAttempts")}
           </p>
           <div className="flex gap-3 justify-center">
             <button
@@ -1488,18 +1499,18 @@ export function RoomPage() {
               }}
               className="px-6 py-3 bg-primary-500 hover:bg-primary-400 text-white rounded-full font-medium transition-colors"
             >
-              Réessayer
+              {t("retry")}
             </button>
             <button
               onClick={() => navigate("/")}
               className="px-6 py-3 bg-neutral-700 hover:bg-neutral-600 text-white rounded-full font-medium transition-colors"
             >
-              Retour à l'accueil
+              {t("backToHome")}
             </button>
           </div>
           {!networkStatus.isOnline && (
             <p className="mt-4 text-warning-400 text-sm">
-              ⚠️ Vous semblez être hors ligne. Vérifiez votre connexion internet.
+              {t("appearOfflineWarning")}
             </p>
           )}
         </div>
@@ -1519,10 +1530,10 @@ export function RoomPage() {
             onClick={copyMeetingLink}
             className="min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-neutral-700 rounded-lg transition-all duration-200 active:scale-95"
             title={
-              meetingLinkCopied ? "Copié !" : "Copier le lien de la réunion"
+              meetingLinkCopied ? t("copied") : t("copyMeetingLink")
             }
             aria-label={
-              meetingLinkCopied ? "Lien copié" : "Copier le lien de la réunion"
+              meetingLinkCopied ? t("linkCopied") : t("copyMeetingLink")
             }
           >
             <Icon
@@ -1533,7 +1544,7 @@ export function RoomPage() {
           </button>
           {meetingLinkCopied && (
             <span className="text-xs text-green-400 font-medium animate-pulse hidden sm:inline">
-              Copié !
+              {t("copied")}
             </span>
           )}
           <span className="text-neutral-400 hidden sm:inline">|</span>
@@ -1543,7 +1554,7 @@ export function RoomPage() {
           {isEncrypted && (
             <span
               className="flex items-center gap-1 text-xs text-green-400"
-              title="Chiffrement de bout en bout actif (E2EE)"
+              title={t("e2eeActive")}
             >
               <Icon name="lock" size={14} />
               <span className="hidden sm:inline">E2EE</span>
@@ -1558,13 +1569,13 @@ export function RoomPage() {
             setSettingsOpen(false);
           }}
           className="flex items-center gap-2 bg-neutral-900/80 backdrop-blur-sm rounded-xl px-4 py-2 hover:bg-neutral-800/90 transition-colors cursor-pointer"
-          title="Voir les participants"
-          aria-label="Ouvrir le panneau des participants"
+          title={t("viewParticipants")}
+          aria-label={t("openParticipantsPanel")}
         >
           <Icon name="people" size={18} className="text-neutral-400" />
           <span className="text-sm text-white">{participantCount}</span>
           {participantCount >= 8 && (
-            <span className="text-xs text-warning-400">(max)</span>
+            <span className="text-xs text-warning-400">{t("maxTag")}</span>
           )}
         </button>
       </header>
@@ -1647,9 +1658,9 @@ export function RoomPage() {
         <div className="absolute inset-0 bg-neutral-900/90 flex items-center justify-center z-50">
           <div className="text-center">
             <div className="w-12 h-12 border-4 border-primary-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-white">Connexion en cours...</p>
+            <p className="text-white">{t("connectingInProgress")}</p>
             <p className="text-neutral-400 text-sm mt-2">
-              Établissement de la connexion P2P...
+              {t("establishingP2pConnection")}
             </p>
           </div>
         </div>
@@ -1659,7 +1670,7 @@ export function RoomPage() {
       {connected && connectionStatus === "reconnecting" && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-warning-500/90 text-neutral-900 rounded-lg px-4 py-2 text-sm flex items-center gap-2 z-40">
           <div className="w-4 h-4 border-2 border-neutral-900 border-t-transparent rounded-full animate-spin" />
-          Reconnexion en cours...
+          {t("reconnecting")}
         </div>
       )}
 
@@ -1669,12 +1680,12 @@ export function RoomPage() {
         participants.size === 0 && (
           <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-danger-500/90 text-white rounded-lg px-4 py-3 text-sm max-w-md text-center z-40">
             <Icon name="warning" size={18} className="inline mr-2" />
-            Impossible de se connecter. Vérifiez votre connexion internet.
+            {t("cannotConnectCheckConnection")}
             <button
               onClick={() => globalThis.location.reload()}
               className="block w-full mt-2 px-3 py-1 bg-white/20 rounded hover:bg-white/30 transition-colors"
             >
-              Rafraîchir la page
+              {t("refreshPage")}
             </button>
           </div>
         )}
@@ -1691,16 +1702,16 @@ export function RoomPage() {
       {roomFullError && (
         <div className="absolute bottom-32 sm:bottom-28 left-1/2 -translate-x-1/2 bg-danger-500/90 rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-center max-w-[90vw] sm:max-w-md z-40 mx-4">
           <p className="text-white text-sm mb-2 font-medium">
-            Réunion complète
+            {t("roomFull")}
           </p>
           <p className="text-white/80 text-xs mb-3">
-            Maximum 8 participants autorisés avec l'architecture P2P mesh.
+            {t("roomFullMaxParticipants")}
           </p>
           <button
             onClick={() => navigate("/")}
             className="px-4 py-2 bg-white text-danger-500 rounded-lg text-sm font-medium"
           >
-            Retour à l'accueil
+            {t("backToHome")}
           </button>
         </div>
       )}
@@ -1712,12 +1723,12 @@ export function RoomPage() {
         !roomFullError && (
           <div className="absolute bottom-32 sm:bottom-28 left-1/2 -translate-x-1/2 bg-neutral-800/95 backdrop-blur-sm rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-center max-w-[90vw] sm:max-w-lg z-40 mx-4">
             <p className="text-white text-sm mb-2 sm:mb-3 font-medium">
-              En attente des participants
+              {t("waitingForParticipants")}
             </p>
             <p className="text-neutral-400 text-xs mb-3 sm:mb-4">
-              Partagez ce lien pour inviter jusqu'à{" "}
+              {t("shareInviteLinkPrefix")}{" "}
               <span className="text-primary-400 font-semibold">
-                8 personnes
+                {t("maxPeople")}
               </span>
             </p>
             <button
@@ -1726,11 +1737,11 @@ export function RoomPage() {
             >
               <Icon name={inviteLinkCopied ? "check" : "copy"} size={18} />
               {inviteLinkCopied
-                ? "Lien copié !"
-                : "Copier le lien d'invitation"}
+                ? t("inviteLinkCopied")
+                : t("copyInviteLink")}
             </button>
             <p className="text-neutral-500 text-xs mt-2 sm:mt-3">
-              ℹ️ Architecture P2P Mesh - Jusqu'à 8 participants
+              {t("p2pMeshInfo")}
             </p>
           </div>
         )}
@@ -1741,9 +1752,9 @@ export function RoomPage() {
         !state?.isHost &&
         !roomFullError && (
           <div className="absolute bottom-32 sm:bottom-28 left-1/2 -translate-x-1/2 bg-neutral-800/95 backdrop-blur-sm rounded-xl px-4 sm:px-6 py-3 sm:py-4 text-center max-w-[90vw] sm:max-w-md z-40 mx-4">
-            <p className="text-white text-sm mb-2">Connexion à la réunion...</p>
+            <p className="text-white text-sm mb-2">{t("joiningMeeting")}</p>
             <p className="text-neutral-400 text-xs">
-              Établissement des connexions P2P
+              {t("establishingP2pConnections")}
             </p>
           </div>
         )}
