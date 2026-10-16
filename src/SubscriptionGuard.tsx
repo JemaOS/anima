@@ -120,8 +120,11 @@ function isOsManagedSession(): boolean {
 async function waitForManagedTokenRefresh(
   staleToken: string
 ): Promise<string | null> {
+  // Short window only: this runs while the app shows its loading screen. The
+  // OS refreshes on its own cycle; making the user wait 3 x 4 s before falling
+  // back to the cached entitlement was the main 10 s startup hang.
   for (let attempt = 0; attempt < 3; attempt++) {
-    await new Promise((resolve) => setTimeout(resolve, 4000));
+    await new Promise((resolve) => setTimeout(resolve, 1000));
     const token = await getAccessToken(staleToken);
     if (token && token !== staleToken) {
       return token;
@@ -251,7 +254,7 @@ function loadPortalIframe(): Promise<HTMLIFrameElement | null> {
       const iframe = document.createElement('iframe');
       iframe.style.display = 'none';
       iframe.setAttribute('aria-hidden', 'true');
-      const timeout = setTimeout(() => resolve(null), 8000);
+      const timeout = setTimeout(() => resolve(null), 2000);
       iframe.onload = () => { clearTimeout(timeout); resolve(iframe); };
       iframe.onerror = () => { clearTimeout(timeout); resolve(null); };
       iframe.src = AUTH_PORTAL_URL;
@@ -281,7 +284,7 @@ async function requestTokensFromPortal(): Promise<{
         clearTimeout(timeout);
         window.removeEventListener('message', onMessage);
       };
-      const timeout = setTimeout(() => { cleanup(); resolve(empty); }, 2500);
+      const timeout = setTimeout(() => { cleanup(); resolve(empty); }, 1500);
       const onMessage = (event: MessageEvent) => {
         if (event.origin !== AUTH_PORTAL_URL) return;
         const data = event.data;
@@ -548,6 +551,23 @@ async function verifySubscription(): Promise<VerifyOutcome> {
     }
   }
   return signedEntitlementFallback();
+}
+
+// Hard cap for the startup verification: never keep the user on the loading
+// screen longer than this. When the session/network checks are slow, fall back
+// to the locally cached signed entitlement (or the offline grace) instead of
+// waiting on the portal iframe / OS token refresh.
+const VERIFY_TIMEOUT_MS = 4000;
+
+function verifySubscriptionCapped(): Promise<VerifyOutcome> {
+  return Promise.race<VerifyOutcome>([
+    verifySubscription(),
+    new Promise<VerifyOutcome>((resolve) => {
+      setTimeout(() => {
+        resolve(signedEntitlementFallback());
+      }, VERIFY_TIMEOUT_MS);
+    }),
+  ]);
 }
 
 function JemaOSLogo() {
@@ -1128,7 +1148,7 @@ export const SubscriptionGuard: React.FC<SubscriptionGuardProps> = ({ appName, c
   useEffect(() => {
     let cancelled = false;
     const verify = async () => {
-      const outcome = await verifySubscription();
+      const outcome = await verifySubscriptionCapped();
       if (cancelled) return;
       if (outcome === 'allowed') {
         setStatus('allowed');

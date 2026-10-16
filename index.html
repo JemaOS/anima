@@ -71,9 +71,17 @@
     <link rel="preconnect" href="https://0.peerjs.com" />
     <link rel="preconnect" href="https://1.peerjs.com" />
 
-    <!-- Preload des ressources critiques -->
+    <!-- Précharger les ressources critiques -->
     <link rel="preload" href="/icons/icon.svg" as="image" type="image/svg+xml" />
-    <link rel="preload" href="/src/main.tsx" as="script" crossorigin />
+
+    <!-- Police Inter : preconnect + feuille dans le <head>. En @import CSS elle
+         n'était découverte qu'après index.css (aller-retour supplémentaire). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+    />
 
     <!-- DNS Prefetch -->
     <link rel="dns-prefetch" href="https://cloud.peerjs.com" />

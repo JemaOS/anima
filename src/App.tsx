@@ -1,22 +1,38 @@
 // Copyright (c) 2025 Jema Technology.
 // Distributed under the license specified in the root directory of this project.
 
-import React from "react";
+import React, { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { HomePage, PreJoinPage, RoomPage } from "./pages";
+import { HomePage } from "./pages/HomePage";
 import { SubscriptionGuard } from "./SubscriptionGuard";
 import "./index.css";
+
+// Lazy routes: PreJoin (camera preview) and Room (WebRTC/peerjs/simple-peer,
+// ~90 KB) are only downloaded when actually opened, not on the home page.
+const PreJoinPage = lazy(() =>
+  import("./pages/PreJoinPage").then((m) => ({ default: m.PreJoinPage })),
+);
+const RoomPage = lazy(() =>
+  import("./pages/RoomPage").then((m) => ({ default: m.RoomPage })),
+);
+
+function RouteFallback() {
+  // Plain themed backdrop while a route chunk loads (avoids a white flash).
+  return <div style={{ minHeight: "100vh", background: "#0b0f1a" }} />;
+}
 
 function App() {
   return (
     <SubscriptionGuard appName="Anima">
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/prejoin/:code" element={<PreJoinPage />} />
-        <Route path="/room/:code" element={<RoomPage />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+      <Suspense fallback={<RouteFallback />}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/prejoin/:code" element={<PreJoinPage />} />
+          <Route path="/room/:code" element={<RoomPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
     </SubscriptionGuard>
   );

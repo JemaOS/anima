@@ -2,7 +2,8 @@
  * Distributed under the license specified in the root directory of this project.
  */
 
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+/* La police Inter est chargée depuis index.html (preconnect + <link>) : en
+   @import ici, elle n'était découverte qu'après le téléchargement de ce CSS. */
 
 @tailwind base;
 @tailwind components;
