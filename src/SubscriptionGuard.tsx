@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useI18n } from './i18n';
+import {
+  getVerifiedSignedEntitlement,
+  storeSignedEntitlementFromServer,
+} from './entitlementToken';
 
 // SubscriptionGuard v3 (2026-09-04)
 // ---------------------------------
@@ -142,7 +146,7 @@ async function getAccessToken(exclude?: string): Promise<string | null> {
   try {
     const sessionToken = sessionStorage.getItem('jemaos_access_token');
     if (sessionToken && sessionToken !== exclude) return sessionToken;
-  } catch {}
+  } catch { /* ignore */ }
   // Portail jema-auth (iframe + postMessage) : récupère les jetons de la
   // session OS (access + refresh) quand aucune autre source n'en a.
   // JAMAIS en mode géré : les jetons du portail appartiennent à la session
@@ -183,7 +187,7 @@ function clearStaleTokenCookie() {
 function markSubscriptionOk() {
   try {
     localStorage.setItem(GRACE_KEY, String(Date.now() + GRACE_MS));
-  } catch {}
+  } catch { /* ignore */ }
   // Token frais obtenu : on réarme la reconnexion automatique.
   clearReauthAttempt();
 }
@@ -193,7 +197,7 @@ function markSubscriptionOk() {
 function clearSubscriptionGrace() {
   try {
     localStorage.removeItem(GRACE_KEY);
-  } catch {}
+  } catch { /* ignore */ }
 }
 
 function inGracePeriod(): boolean {
@@ -210,7 +214,7 @@ function inGracePeriod(): boolean {
 const REAUTH_FLAG = 'jemaos_reauth_attempted';
 
 function markReauthAttempted() {
-  try { sessionStorage.setItem(REAUTH_FLAG, '1'); } catch {}
+  try { sessionStorage.setItem(REAUTH_FLAG, '1'); } catch { /* ignore */ }
 }
 
 function reauthAlreadyAttempted(): boolean {
@@ -218,7 +222,7 @@ function reauthAlreadyAttempted(): boolean {
 }
 
 function clearReauthAttempt() {
-  try { sessionStorage.removeItem(REAUTH_FLAG); } catch {}
+  try { sessionStorage.removeItem(REAUTH_FLAG); } catch { /* ignore */ }
 }
 
 // return_to de la page /auth interne : même origine uniquement
@@ -308,14 +312,14 @@ async function requestTokensFromPortal(): Promise<{
 // partagé .jemaos.com permet aux autres PWA d'en profiter directement).
 function storePortalTokens(accessToken: string | null, refreshToken: string | null) {
   if (accessToken) {
-    try { sessionStorage.setItem('jemaos_access_token', accessToken); } catch {}
+    try { sessionStorage.setItem('jemaos_access_token', accessToken); } catch { /* ignore */ }
     document.cookie = `jemaos_access_token=${accessToken}; Domain=.jemaos.com; Path=/; Secure; SameSite=Lax; Max-Age=86400`;
   }
   if (refreshToken) {
     try {
       sessionStorage.setItem('jemaos_refresh_token', refreshToken);
       localStorage.setItem('jemaos_refresh_token', refreshToken);
-    } catch {}
+    } catch { /* ignore */ }
     document.cookie = `jemaos_refresh_token=${refreshToken}; Domain=.jemaos.com; Path=/; Secure; SameSite=Lax; Max-Age=604800`;
   }
 }
@@ -337,10 +341,29 @@ async function checkSubscription(token: string): Promise<CheckResult> {
     // Freemium gate (SaaS PR #54): un plan sans apps (app_scope 'none', ex. Freemium)
     // affiche le mur 'Passer a Pro' au lieu d'ouvrir l'app.
     if ((data as { apps_allowed?: unknown }).apps_allowed === false) return 'no-subscription';
+    // Entitlement signé : à chaque check réussi, on récupère/rafraîchit le JWT
+    // serveur (vérifiable hors-ligne) pour couvrir les cas où l'injection du
+    // cookie OS échoue ensuite. Best-effort, n'altère pas le verdict en cours.
+    void storeSignedEntitlementFromServer(token);
     return 'ok';
   } catch {
     return 'error'; // offline/DNS/CORS : conserver l'état courant
   }
+}
+
+// Dernier recours avant le mur : si un jeton d'entitlement SIGNÉ est en cache
+// (vérifié localement, non expiré), on s'appuie dessus. Rend l'accès robuste
+// quand l'OS n'injecte plus le cookie, sans trust client falsifiable.
+async function signedEntitlementFallback(): Promise<VerifyOutcome> {
+  const claims = await getVerifiedSignedEntitlement();
+  if (claims !== null) {
+    if (claims.apps_allowed) {
+      return 'allowed';
+    }
+    clearSubscriptionGrace();
+    return 'denied';
+  }
+  return inGracePeriod() ? 'allowed' : 'reauth';
 }
 
 // Cherche le refresh token : pont OEM (getJemaOSRefreshToken), puis cookie
@@ -359,11 +382,11 @@ function getRefreshTokenFromStores(): string | null {
   try {
     const t = sessionStorage.getItem('jemaos_refresh_token');
     if (t) return t;
-  } catch {}
+  } catch { /* ignore */ }
   try {
     const t = localStorage.getItem('jemaos_refresh_token');
     if (t) return t;
-  } catch {}
+  } catch { /* ignore */ }
   return null;
 }
 
@@ -423,7 +446,7 @@ async function tryRefreshToken(): Promise<boolean> {
     const rt = data?.refresh_token || data?.refreshToken;
     if (typeof rt === 'string' && rt) {
       sessionStorage.setItem('jemaos_refresh_token', rt);
-      try { localStorage.setItem('jemaos_refresh_token', rt); } catch {}
+      try { localStorage.setItem('jemaos_refresh_token', rt); } catch { /* ignore */ }
       document.cookie = `jemaos_refresh_token=${rt}; Domain=.jemaos.com; Path=/; Secure; SameSite=Lax; Max-Age=604800`;
     }
     return true;
@@ -468,7 +491,7 @@ async function verifySubscription(): Promise<VerifyOutcome> {
           return 'denied';
         }
       }
-      return inGracePeriod() ? 'allowed' : 'reauth';
+      return signedEntitlementFallback();
     }
     if (await tryRefreshToken()) {
       token = await getAccessToken(stale);
@@ -485,7 +508,7 @@ async function verifySubscription(): Promise<VerifyOutcome> {
         }
       }
     }
-    return inGracePeriod() ? 'allowed' : 'reauth';
+    return signedEntitlementFallback();
   }
 
   // Aucun token : la session SSO peut encore être vivante, on tente un
@@ -506,7 +529,7 @@ async function verifySubscription(): Promise<VerifyOutcome> {
         return 'denied';
       }
     }
-    return inGracePeriod() ? 'allowed' : 'reauth';
+    return signedEntitlementFallback();
   }
   if (await tryRefreshToken()) {
     token = await getAccessToken();
@@ -523,7 +546,7 @@ async function verifySubscription(): Promise<VerifyOutcome> {
       }
     }
   }
-  return inGracePeriod() ? 'allowed' : 'reauth';
+  return signedEntitlementFallback();
 }
 
 function JemaOSLogo() {
