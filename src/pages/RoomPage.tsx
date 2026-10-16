@@ -46,8 +46,6 @@ interface LocationState {
   hostPeerId?: string;
 }
 
-
-
 // Participant state reducer for efficient updates
 type ParticipantAction =
   | {
@@ -77,15 +75,6 @@ function handleAddParticipant(
   // If so, preserve the stream when adding the participant info
   const existing = state.get(payload.id);
   if (existing?.stream) {
-    console.log(
-      "[Reducer] ADD_PARTICIPANT: Preserving existing stream from placeholder",
-      {
-        id: payload.id,
-        existingName: existing.name,
-        newName: payload.participant.name,
-        hasStream: !!existing.stream,
-      },
-    );
     newState.set(payload.id, {
       ...payload.participant,
       stream: existing.stream, // Preserve the stream!
@@ -249,12 +238,10 @@ export function RoomPage() {
   // Network status and reconnection
   const networkStatus = useNetworkStatus({
     onOnline: () => {
-      console.log("[RoomPage] 🌐 Network restored");
       setMediaError(t("networkRestored"));
       setTimeout(() => setMediaError(null), 3000);
     },
     onOffline: () => {
-      console.log("[RoomPage] 🌐 Network lost");
       setMediaError(t("networkLostReconnecting"));
     },
   });
@@ -444,10 +431,6 @@ export function RoomPage() {
   // Handle video quality change from settings panel
   const handleVideoQualityChange = useCallback(
     async (quality: VideoQualityLevel) => {
-      console.log(
-        "[handleVideoQualityChange] Changing video quality to:",
-        quality,
-      );
 
       // Update state and save to localStorage
       setVideoQuality(quality);
@@ -488,16 +471,6 @@ export function RoomPage() {
             );
             localStreamRef.current = newStreamRef;
             setLocalStream(newStreamRef);
-
-            console.log(
-              "[handleVideoQualityChange] Video quality applied successfully",
-              {
-                quality,
-                width: newVideoTrack.getSettings().width,
-                height: newVideoTrack.getSettings().height,
-                frameRate: newVideoTrack.getSettings().frameRate,
-              },
-            );
           }
         } catch (error) {
           console.error(
@@ -514,7 +487,6 @@ export function RoomPage() {
 
   // Handle video style change from settings panel
   const handleVideoStyleChange = useCallback((style: VideoStyle) => {
-    console.log("[handleVideoStyleChange] Changing video style to:", style);
     setVideoStyle(style);
     saveVideoStyle(style);
     // Broadcast our chosen filter so everyone applies it on our tile.
@@ -627,11 +599,6 @@ export function RoomPage() {
   }, []);
 
   const handleStreamReceived = useCallback((peerId: string, stream: MediaStream) => {
-    console.log("[RoomPage] 🎥 Received stream from peer:", peerId, {
-      streamId: stream.id,
-      audioTracks: stream.getAudioTracks().length,
-      videoTracks: stream.getVideoTracks().length,
-    });
 
     // Ensure all tracks are enabled
     stream.getTracks().forEach((track) => {
@@ -663,7 +630,6 @@ export function RoomPage() {
   }, []);
 
   const handleTrackUnmuted = useCallback((peerId: string, stream: MediaStream) => {
-    console.log("[RoomPage] 🔄 Track unmuted callback received", { peerId });
 
     // Force update the participant's stream by creating a new MediaStream reference
     const newStreamRef = new MediaStream(stream.getTracks());
@@ -750,15 +716,11 @@ export function RoomPage() {
       let peerId: string;
       if (state.isHost) {
         peerId = `host-${code}`;
-        console.log("[RoomPage] 🔌 HOST: Using deterministic peer ID", { peerId, code });
       } else {
         peerId = `meet-${code}-${Date.now().toString(36)}-${generateId().substring(0, 5)}`;
-        console.log("[RoomPage] 🔌 PARTICIPANT: Using random peer ID", { peerId });
       }
 
-      console.log("[RoomPage] 🔌 Initializing peer...", { peerId, isHost: state.isHost });
       const id = await manager.initialize(peerId, state.isHost);
-      console.log("[RoomPage] ✅ Peer initialized", { requestedId: peerId, actualId: id });
 
       if (!isMounted) {
         manager.destroy();
@@ -770,14 +732,7 @@ export function RoomPage() {
 
       // 5. Update local stream in manager immediately after initialization
       if (capturedStream) {
-        console.log("[RoomPage] 📹 Updating local stream in manager", {
-          audioTracks: capturedStream.getAudioTracks().length,
-          videoTracks: capturedStream.getVideoTracks().length,
-          isHost: state.isHost,
-        });
         manager.updateLocalStream(capturedStream);
-      } else {
-        console.log("[RoomPage] ⚠️ No captured stream to update in manager!");
       }
 
       setConnectionStatus("connected");
@@ -787,16 +742,12 @@ export function RoomPage() {
         manager.createRoom(state.userName);
         const newUrl = `${globalThis.location.pathname}${globalThis.location.search}#peer_id=${id}`;
         globalThis.history.replaceState(null, "", newUrl);
-        console.log("[RoomPage] 🔗 Host URL updated with peer ID", { url: newUrl, peerId: id });
       } else {
         const hostPeerIdToUse = state.hostPeerId || `host-${code}`;
-        console.log("[RoomPage] 🤝 Using host peer ID", { using: hostPeerIdToUse });
 
         await new Promise((resolve) => setTimeout(resolve, 100));
-        console.log("[RoomPage] 🤝 Joining room as participant", { hostPeerId: hostPeerIdToUse });
         
         const joined = await manager.joinRoom(hostPeerIdToUse, state.userName, capturedStream);
-        console.log("[RoomPage] 🤝 Join room result", { joined });
       }
 
       manager.startQualityMonitoring();
@@ -814,7 +765,6 @@ export function RoomPage() {
     const init = async () => {
       // Skip if already initialized AND we have a valid manager
       if (initializationComplete.current && p2pManager.current) {
-        console.log("[RoomPage] ⏭️ Already initialized, skipping");
         return;
       }
 
@@ -822,7 +772,6 @@ export function RoomPage() {
       // Guards against concurrent/duplicate init runs triggered by re-renders,
       // which previously destroyed the manager mid-join and broke rejoining.
       if (activeSessionCode.current === code && p2pManager.current) {
-        console.log("[RoomPage] ⏭️ Session already active for this code, skipping");
         return;
       }
       activeSessionCode.current = code ?? null;
@@ -850,7 +799,6 @@ export function RoomPage() {
       manager.onConnectionQuality(handleConnectionQuality);
       manager.onHostPromotion((newId) => {
         // A participant took over as host (room was empty on rejoin).
-        console.log("[RoomPage] 👑 Promoted to host - room reopened", { newId });
         setMyId(newId);
         setConnectionStatus("connected");
         const newUrl = `${globalThis.location.pathname}${globalThis.location.search}#peer_id=${newId}`;
@@ -903,7 +851,6 @@ export function RoomPage() {
         
         // If we haven't exceeded max attempts, retry initialization
         if (initAttempts < maxInitAttempts - 1) {
-          console.log(`[RoomPage] Retrying initialization (${initAttempts + 1}/${maxInitAttempts})`);
           setMediaError(translate("connectionRetryAttempt", {
             attempt: initAttempts + 2,
             max: maxInitAttempts,
@@ -1014,7 +961,6 @@ export function RoomPage() {
 
     if (newVideoEnabled) {
       // Re-enable video - ALWAYS get a fresh track on mobile
-      console.log("[toggleVideo] Getting FRESH video track for re-enable...");
 
       const { success, error, newStream } = await restartVideoTrack(
         stream,
@@ -1045,10 +991,6 @@ export function RoomPage() {
         setTimeout(() => setMediaError(null), 3000);
       }
     } else {
-      // Disable video
-      console.log(
-        "[toggleVideo] 📤 Sending media-state with videoEnabled=false",
-      );
       p2pManager.current?.broadcast({
         type: "media-state",
         data: { audioEnabled, videoEnabled: false },
@@ -1077,9 +1019,6 @@ export function RoomPage() {
       // Try with exact facingMode first, then fallback
       let newStream: MediaStream;
       try {
-        console.log(
-          `Switching to ${newFacingMode} camera with exact constraint`,
-        );
         const exactConstraints = getOptimalVideoConstraints(
           newFacingMode,
           true,
@@ -1091,7 +1030,6 @@ export function RoomPage() {
           audio: false, // Don't request audio again, we already have it
         });
       } catch (exactError) {
-        console.log(`exact ${newFacingMode} failed, trying ideal:`, exactError);
         try {
           const idealConstraints = getOptimalVideoConstraints(
             newFacingMode,
@@ -1103,10 +1041,6 @@ export function RoomPage() {
             audio: false,
           });
         } catch (idealError) {
-          console.log(
-            `ideal ${newFacingMode} failed, trying simple:`,
-            idealError,
-          );
           const simpleConstraints = getOptimalVideoConstraints(
             newFacingMode,
             false,
@@ -1152,15 +1086,10 @@ export function RoomPage() {
   }, [facingMode, videoEnabled]);
 
   const stopScreenShare = useCallback(() => {
-    console.log("[stopScreenShare] 🛑 Stopping screen share...");
 
     setScreenStream((prev) => {
       if (prev) {
         prev.getTracks().forEach((track) => {
-          console.log("[stopScreenShare] Stopping track", {
-            kind: track.kind,
-            label: track.label,
-          });
           track.stop();
         });
       }
@@ -1170,10 +1099,6 @@ export function RoomPage() {
     // Restore camera stream
     const stream = localStreamRef.current;
     if (stream) {
-      console.log("[stopScreenShare] 📹 Restoring camera stream", {
-        videoTracks: stream.getVideoTracks().length,
-        audioTracks: stream.getAudioTracks().length,
-      });
 
       // If camera was enabled before, we need to get a fresh video track
       // because the old one might have been replaced
@@ -1204,10 +1129,6 @@ export function RoomPage() {
               const newStreamRef = new MediaStream(stream.getTracks());
               localStreamRef.current = newStreamRef;
               setLocalStream(newStreamRef);
-
-              console.log(
-                "[stopScreenShare] ✅ Camera restored with fresh track",
-              );
             }
           })
           .catch((err) => {
@@ -1233,7 +1154,6 @@ export function RoomPage() {
       } as P2PMessage);
     }
 
-    console.log("[stopScreenShare] ✅ Screen share stopped");
   }, [myId, audioEnabled, videoEnabled, facingMode]);
 
   // Screen share - memoized
@@ -1244,24 +1164,16 @@ export function RoomPage() {
   const startScreenShare = useCallback(async () => {
     // Check if getDisplayMedia is supported
     if (!navigator.mediaDevices?.getDisplayMedia) {
-      console.log("[startScreenShare] ❌ getDisplayMedia not supported");
       setMediaError(translate("screenShareNotSupported"));
       setTimeout(() => setMediaError(null), 3000);
       return;
     }
 
     try {
-      console.log("[startScreenShare] 🖥️ Starting screen share...");
 
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
         audio: true, // Try to capture system audio
-      });
-
-      console.log("[startScreenShare] ✅ Got display stream", {
-        videoTracks: displayStream.getVideoTracks().length,
-        audioTracks: displayStream.getAudioTracks().length,
-        videoTrackLabel: displayStream.getVideoTracks()[0]?.label,
       });
 
       // Create a combined stream with screen video + local audio (from mic)
@@ -1271,37 +1183,21 @@ export function RoomPage() {
       const screenVideoTrack = displayStream.getVideoTracks()[0];
       if (screenVideoTrack) {
         combinedStream.addTrack(screenVideoTrack);
-        console.log("[startScreenShare] Added screen video track", {
-          trackId: screenVideoTrack.id,
-          label: screenVideoTrack.label,
-        });
       }
 
       // Add local audio track (from microphone) to keep voice communication
       const localAudioTrack = localStreamRef.current?.getAudioTracks()[0];
       if (localAudioTrack) {
         combinedStream.addTrack(localAudioTrack);
-        console.log("[startScreenShare] Added local audio track", {
-          trackId: localAudioTrack.id,
-          enabled: localAudioTrack.enabled,
-        });
       }
 
       // Optionally add system audio if available
       const systemAudioTrack = displayStream.getAudioTracks()[0];
       if (systemAudioTrack && !localAudioTrack) {
         combinedStream.addTrack(systemAudioTrack);
-        console.log("[startScreenShare] Added system audio track", {
-          trackId: systemAudioTrack.id,
-        });
       }
 
-      setScreenStream(displayStream); // Keep reference to stop later
-
-      // Update P2P manager with the combined stream
-      console.log(
-        "[startScreenShare] 📤 Updating P2P manager with screen share stream",
-      );
+      setScreenStream(displayStream);
       p2pManager.current?.updateLocalStream(combinedStream);
 
       // Notify peers about screen sharing state
@@ -1318,18 +1214,15 @@ export function RoomPage() {
 
       // Handle when user stops sharing via browser UI
       screenVideoTrack.onended = () => {
-        console.log("[startScreenShare] 🛑 Screen share ended by user");
         stopScreenShare();
       };
 
-      console.log("[startScreenShare] ✅ Screen share started successfully");
     } catch (error: any) {
       console.error("[startScreenShare] ❌ Error:", error);
       // Don't show error for user cancellation (NotAllowedError when user clicks cancel)
       // or AbortError (user dismissed the dialog)
       if (error.name === "NotAllowedError" || error.name === "AbortError") {
         // User cancelled - no error message needed
-        console.log("[startScreenShare] User cancelled screen share");
         return;
       }
       // For other errors, show a helpful message

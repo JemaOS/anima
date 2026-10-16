@@ -266,7 +266,6 @@ export const VideoTile = memo(function VideoTile({
         };
 
         track.onunmute = () => {
-          console.log("[VideoTile] Audio track unmuted:", track.id);
         };
       });
 
@@ -281,7 +280,6 @@ export const VideoTile = memo(function VideoTile({
           video.muted = false;
           // If video track is ended/muted, we still want to play for audio
           await video.play();
-          console.log("[VideoTile] Video playing with audio enabled");
         } catch (err) {
           console.error("[VideoTile] Failed to play video:", err);
         }
@@ -403,7 +401,6 @@ export const VideoTile = memo(function VideoTile({
     if (!hasVideo && participant.stream.getAudioTracks().length > 0) {
       const checkAndPlay = () => {
         if (video.paused) {
-          console.log("[VideoTile] Video disabled but audio available - forcing play");
           video.muted = false;
           video.play().catch(e => console.warn("[VideoTile] Force play failed:", e));
         }

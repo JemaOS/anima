@@ -257,7 +257,6 @@ export function useOfflineSupport(options: UseOfflineSupportOptions = {}): Offli
   // Écouter les changements de connexion
   useEffect(() => {
     const handleOnline = () => {
-      console.log('[useOfflineSupport] Connexion rétablie');
       setIsOffline(false);
 
       if (wasOfflineRef.current && autoSync) {
@@ -270,7 +269,6 @@ export function useOfflineSupport(options: UseOfflineSupportOptions = {}): Offli
     };
 
     const handleOffline = () => {
-      console.log('[useOfflineSupport] Connexion perdue');
       setIsOffline(true);
       wasOfflineRef.current = true;
       onGoneOffline?.();

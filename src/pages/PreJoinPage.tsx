@@ -48,14 +48,12 @@ export function PreJoinPage() {
 
   const networkStatus = useNetworkStatus({
     onOnline: () => {
-      console.log("[PreJoinPage] 🌐 Network restored");
       if (error === t("networkLost")) {
         setError(null);
         initializeMedia();
       }
     },
     onOffline: () => {
-      console.log("[PreJoinPage] 🌐 Network lost");
       setError(t("networkLost"));
     },
   });
@@ -319,7 +317,6 @@ export function PreJoinPage() {
   };
 
   const handleVideoDeviceChange = async (newDeviceId: string) => {
-    console.log("Camera selection changed to:", newDeviceId);
     const newDevice = devices.find((d) => d.deviceId === newDeviceId);
     const isBack = newDevice ? isBackCamera(newDevice) : false;
     setIsFrontCamera(!isBack);
@@ -485,11 +482,9 @@ async function ensurePermissions(
 function getHostPeerIdFromUrl(hash: string, code: string | undefined, isHost: boolean): string | undefined {
   if (hash.startsWith("#peer_id=")) {
     const id = hash.replace("#peer_id=", "");
-    console.log("[PreJoinPage] Using hostPeerId from URL hash:", id);
     return id;
   } else if (code && !isHost) {
     const id = `host-${code}`;
-    console.log("[PreJoinPage] No hash provided, using deterministic hostPeerId:", id);
     return id;
   }
   return undefined;

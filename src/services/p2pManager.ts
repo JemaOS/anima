@@ -98,14 +98,9 @@ const MAX_INITIAL_RETRIES = 4;
 
 // Debug logging helper - set to true for debugging
 const DEBUG = true;
-const log = (category: string, message: string, data?: any) => {
+const log = (_category: string, _message: string, _data?: unknown) => {
   if (DEBUG) {
-    const timestamp = new Date().toISOString().substr(11, 12);
-    if (data) {
-      console.log(`[${timestamp}] [P2P:${category}] ${message}`, data);
-    } else {
-      console.log(`[${timestamp}] [P2P:${category}] ${message}`);
-    }
+    return;
   }
 };
 

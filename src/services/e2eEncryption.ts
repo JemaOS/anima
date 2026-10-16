@@ -73,7 +73,6 @@ export class E2EEncryption {
   generateKeyPair(): KeyPair {
     const keyPair = nacl.box.keyPair();
     this.localKeyPair = keyPair;
-    console.log("[E2EE] Generated new X25519 key pair");
     return keyPair;
   }
 
@@ -134,10 +133,6 @@ export class E2EEncryption {
     // Start key rotation timer for Perfect Forward Secrecy
     this.startKeyRotation(peerId);
 
-    console.log(`[E2EE] Established secure session with peer ${peerId}`);
-    console.log(`[E2EE] Session ID: ${sessionId}`);
-    console.log(`[E2EE] Encryption: XSalsa20-Poly1305 (256-bit)`);
-
     return sessionId;
   }
 
@@ -165,9 +160,6 @@ export class E2EEncryption {
     }, KEY_ROTATION_INTERVAL);
 
     this.keyRotationTimers.set(peerId, timer);
-    console.log(
-      `[E2EE] Key rotation enabled for peer ${peerId} (every ${KEY_ROTATION_INTERVAL / 1000}s)`,
-    );
   }
 
   /**
@@ -191,8 +183,6 @@ export class E2EEncryption {
     session.sharedKey = newSharedKey;
     session.localKeyPair = newKeyPair;
     session.createdAt = Date.now();
-
-    console.log(`[E2EE] Keys rotated for peer ${peerId} (PFS)`);
 
     // Notify callback to send new public key to peer
     if (this.onKeyRotation) {
@@ -231,7 +221,6 @@ export class E2EEncryption {
     session.remotePublicKey = remotePublicKey;
     session.sharedKey = newSharedKey;
 
-    console.log(`[E2EE] Updated peer ${peerId} public key`);
   }
 
   /**
@@ -432,7 +421,6 @@ export class E2EEncryption {
       this.keyRotationTimers.delete(peerId);
     }
 
-    console.log(`[E2EE] Ended secure session with peer ${peerId}`);
   }
 
   /**
@@ -450,7 +438,6 @@ export class E2EEncryption {
       this.localKeyPair = null;
     }
 
-    console.log("[E2EE] Encryption manager destroyed");
   }
 
   /**
