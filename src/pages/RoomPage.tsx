@@ -17,6 +17,7 @@ import {
   saveVideoStyle,
 } from "@/components/room/SidePanel";
 import { Icon } from "@/components/ui";
+import { ThemeMenu } from "@/theme";
 import { useI18n } from "@/i18n";
 import { translate } from "@/i18n/translations";
 import { Participant, ChatMessage, ConnectionQuality } from "@/types";
@@ -1414,7 +1415,7 @@ export function RoomPage() {
   return (
     <div className="h-screen bg-neutral-900 flex flex-col overflow-hidden">
       {/* Header */}
-      <header className="absolute top-2 left-2 right-2 sm:top-4 sm:left-4 sm:right-4 z-30 flex items-center justify-between">
+      <header className="absolute top-2 left-2 right-2 sm:top-4 sm:left-4 sm:right-4 z-50 flex items-center justify-between">
         <div className="flex items-center gap-2 sm:gap-4 bg-neutral-900/80 backdrop-blur-sm rounded-xl px-3 py-2 sm:px-4">
           <span className="font-mono text-xs sm:text-sm text-white truncate max-w-[120px] sm:max-w-none">
             {code}
@@ -1455,22 +1456,25 @@ export function RoomPage() {
           )}
         </div>
 
-        <button
-          onClick={() => {
-            setParticipantsOpen(true);
-            setChatOpen(false);
-            setSettingsOpen(false);
-          }}
-          className="flex items-center gap-2 bg-neutral-900/80 backdrop-blur-sm rounded-xl px-4 py-2 hover:bg-neutral-800/90 transition-colors cursor-pointer"
-          title={t("viewParticipants")}
-          aria-label={t("openParticipantsPanel")}
-        >
-          <Icon name="people" size={18} className="text-neutral-400" />
-          <span className="text-sm text-white">{participantCount}</span>
-          {participantCount >= 8 && (
-            <span className="text-xs text-warning-400">{t("maxTag")}</span>
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <ThemeMenu />
+          <button
+            onClick={() => {
+              setParticipantsOpen(true);
+              setChatOpen(false);
+              setSettingsOpen(false);
+            }}
+            className="flex items-center gap-2 bg-neutral-900/80 backdrop-blur-sm rounded-xl px-4 py-2 hover:bg-neutral-800/90 transition-colors cursor-pointer"
+            title={t("viewParticipants")}
+            aria-label={t("openParticipantsPanel")}
+          >
+            <Icon name="people" size={18} className="text-neutral-400" />
+            <span className="text-sm text-white">{participantCount}</span>
+            {participantCount >= 8 && (
+              <span className="text-xs text-warning-400">{t("maxTag")}</span>
+            )}
+          </button>
+        </div>
       </header>
 
       {/* Grille vidéo */}

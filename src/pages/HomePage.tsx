@@ -5,6 +5,7 @@ import React, { useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Icon } from "@/components/ui";
 import LanguageSelector from "@/components/LanguageSelector";
+import { ThemeMenu } from "@/theme";
 import { useI18n } from "@/i18n";
 import {
   generateRoomCode,
@@ -54,23 +55,25 @@ export function HomePage() {
   };
 
   return (
-    <div className="h-screen w-screen overflow-hidden bg-[#0f0f1a] relative flex flex-col">
+    <div className="h-screen w-screen overflow-hidden bg-[color:var(--home-bg)] relative flex flex-col">
       {/* Subtle gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#0f0f1a] via-[#151528] to-[#0f0f1a]" />
+      <div className="absolute inset-0 home-backdrop" />
 
       {/* Single subtle accent glow */}
       <div
-        className="absolute w-[500px] h-[500px] rounded-full opacity-[0.06] blur-[100px]"
+        className="absolute w-[500px] h-[500px] rounded-full blur-[100px]"
         style={{
           background: "radial-gradient(circle, #8f88ed 0%, transparent 70%)",
           top: "15%",
           left: "50%",
           transform: "translateX(-50%)",
+          opacity: "var(--accent-glow-opacity)",
         }}
       />
 
       {/* Language selector */}
-      <div className="absolute top-4 right-4 z-20">
+      <div className="absolute top-4 right-4 z-20 flex items-center gap-2">
+        <ThemeMenu />
         <LanguageSelector />
       </div>
 
@@ -82,15 +85,15 @@ export function HomePage() {
             <Icon name="videocam" size={28} className="text-white" />
           </div>
 
-          <h1 className="text-2xl font-semibold text-white tracking-tight mb-1">
+          <h1 className="text-2xl font-semibold text-[color:var(--foreground)] tracking-tight mb-1">
             Anima
           </h1>
-          <p className="text-sm text-gray-500">{t("secureP2pCalling")}</p>
+          <p className="text-sm text-[color:var(--text-subtle)]">{t("secureP2pCalling")}</p>
         </div>
 
         {/* Main card - compact */}
         <div className="w-full max-w-sm">
-          <div className="p-5 rounded-2xl bg-[#1a1a2e]/80 border border-white/[0.06] backdrop-blur-sm">
+          <div className="p-5 rounded-2xl bg-[color:var(--home-card-bg)] border border-[color:var(--home-card-border)] backdrop-blur-sm">
             {/* Create meeting button */}
             <button
               onClick={handleCreateRoom}
@@ -102,9 +105,9 @@ export function HomePage() {
 
             {/* Divider */}
             <div className="flex items-center gap-3 my-4">
-              <div className="flex-1 h-px bg-white/[0.08]" />
-              <span className="text-gray-600 text-xs">{t("or")}</span>
-              <div className="flex-1 h-px bg-white/[0.08]" />
+              <div className="flex-1 h-px bg-[color:var(--home-divider)]" />
+              <span className="text-[color:var(--text-faint)] text-xs">{t("or")}</span>
+              <div className="flex-1 h-px bg-[color:var(--home-divider)]" />
             </div>
 
             {/* Join meeting section */}
@@ -118,10 +121,10 @@ export function HomePage() {
                   onKeyDown={(e) => {
                     if (e.key === "Enter") handleJoinRoom();
                   }}
-                  className="w-full h-11 px-4 bg-white/[0.04] border border-white/[0.08] rounded-xl text-white placeholder:text-gray-600 focus:outline-none focus:border-[#8f88ed]/40 transition-colors duration-200 text-sm"
+                  className="w-full h-11 px-4 bg-[color:var(--home-input-bg)] border border-[color:var(--home-input-border)] rounded-xl text-[color:var(--foreground)] placeholder:text-[color:var(--home-placeholder)] focus:outline-none focus:border-[color:var(--focus-border)] transition-colors duration-200 text-sm"
                 />
                 {error && (
-                  <p className="absolute -bottom-4 left-0 text-red-400 text-xs">
+                  <p className="absolute -bottom-4 left-0 text-danger-500 dark:text-red-400 text-xs">
                     {error}
                   </p>
                 )}
@@ -129,7 +132,7 @@ export function HomePage() {
 
               <button
                 onClick={handleJoinRoom}
-                className="w-full h-11 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] rounded-xl text-gray-300 font-medium transition-colors duration-200 text-sm"
+                className="w-full h-11 bg-[color:var(--home-control-bg)] hover:bg-[color:var(--home-control-hover)] border border-[color:var(--home-input-border)] rounded-xl text-[color:var(--home-control-text)] font-medium transition-colors duration-200 text-sm"
               >
                 {t("join")}
               </button>
@@ -138,7 +141,7 @@ export function HomePage() {
         </div>
 
         {/* Features - inline compact */}
-        <div className="mt-5 flex items-center justify-center gap-5 text-gray-500 text-xs">
+        <div className="mt-5 flex items-center justify-center gap-5 text-[color:var(--text-subtle)] text-xs">
           <div className="flex items-center gap-1.5">
             <Icon name="shield" size={14} className="text-[#8f88ed]" />
             <span>P2P</span>
@@ -156,26 +159,26 @@ export function HomePage() {
         {/* Recent rooms - compact */}
         {recentRooms.length > 0 && (
           <div className="mt-5 w-full max-w-sm">
-            <p className="text-gray-600 text-xs mb-2">{t("recents")}</p>
+            <p className="text-[color:var(--text-faint)] text-xs mb-2">{t("recents")}</p>
             <div className="space-y-1.5">
               {recentRooms.map((room) => (
                 <div
                   key={room.code}
-                  className="w-full flex items-center justify-between p-2.5 bg-white/[0.02] hover:bg-white/[0.05] border border-white/[0.04] rounded-lg transition-colors duration-200 group"
+                  className="w-full flex items-center justify-between p-2.5 bg-[color:var(--home-row-bg)] hover:bg-[color:var(--home-row-hover)] border border-[color:var(--home-row-border)] rounded-lg transition-colors duration-200 group"
                 >
                   <button
                     onClick={() => navigate(`/prejoin/${room.code}`)}
                     className="flex-1 flex items-center gap-2 text-left"
                   >
-                    <Icon name="videocam" size={14} className="text-gray-600" />
-                    <span className="font-mono text-xs text-gray-400">
+                    <Icon name="videocam" size={14} className="text-[color:var(--text-faint)]" />
+                    <span className="font-mono text-xs text-[color:var(--text-subtle)]">
                       {room.code}
                     </span>
                   </button>
                   <div className="flex items-center gap-1">
                     <button
                       onClick={(e) => handleDeleteRoom(e, room.code)}
-                      className="p-1.5 rounded-md hover:bg-red-500/20 text-gray-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                      className="p-1.5 rounded-md hover:bg-red-500/20 text-[color:var(--text-faint)] hover:text-danger-500 dark:hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
                       title={t("delete")}
                       aria-label={t("deleteThisMeeting")}
                     >
@@ -188,7 +191,7 @@ export function HomePage() {
                       <Icon
                         name="arrow-forward"
                         size={14}
-                        className="text-gray-700 group-hover:text-gray-500 transition-colors"
+                        className="text-[color:var(--text-ghost)] group-hover:text-[color:var(--text-subtle)] transition-colors"
                       />
                     </button>
                   </div>
@@ -201,13 +204,13 @@ export function HomePage() {
 
       {/* Footer - fixed at bottom */}
       <div className="relative z-10 pb-4 text-center">
-        <p className="text-gray-700 text-xs">
+        <p className="text-[color:var(--text-ghost)] text-xs">
           {t("developedBy")}{" "}
           <a
             href="https://www.jematechnology.fr/"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[#8f88ed] hover:underline"
+            className="text-primary-500 dark:text-primary-400 hover:underline"
           >
             Jema Technology
           </a>{" "}

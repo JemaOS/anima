@@ -15,10 +15,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
           ref={ref}
           className={`
             w-full h-14 px-4
-            bg-surface-card border border-surface-border
+            bg-[color:var(--input-bg)] border border-[color:var(--border)]
             rounded-lg font-mono text-body-lg
-            text-white placeholder:text-gray-400
-            focus:outline-none focus:border-primary-500 focus:border-2 focus:text-white
+            text-[color:var(--foreground)] placeholder:text-[color:var(--text-subtle)]
+            focus:outline-none focus:border-primary-500 focus:border-2 focus:text-[color:var(--foreground)]
             transition-all duration-150
             ${error ? "border-danger-500" : ""}
             ${className}

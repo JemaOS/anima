@@ -9,7 +9,7 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover"
     />
     <meta name="theme-color" content="#7276d8" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="light dark" />
     <meta
       name="description"
       content="Application de visioconférence P2P sécurisée et sans logs. Communiquez en direct avec chiffrement de bout en bout."
@@ -87,6 +87,27 @@
     <link rel="dns-prefetch" href="https://cloud.peerjs.com" />
 
     <title>Anima - Visioconférence P2P</title>
+
+    <!-- Applique le thème avant le premier rendu pour éviter tout flash. -->
+    <script>
+      (function () {
+        try {
+          var stored = localStorage.getItem("anima-theme");
+          var mode =
+            stored === "light" || stored === "dark" || stored === "system"
+              ? stored
+              : "system";
+          var prefersDark =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches;
+          var dark = mode === "dark" || (mode === "system" && prefersDark);
+          var root = document.documentElement;
+          root.classList.toggle("dark", dark);
+          root.dataset.theme = dark ? "dark" : "light";
+          root.style.colorScheme = dark ? "dark" : "light";
+        } catch (error) {}
+      })();
+    </script>
 
     <!-- Script de détection précoce du mode hors ligne -->
     <script>

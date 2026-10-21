@@ -18,7 +18,7 @@ const RoomPage = lazy(() =>
 
 function RouteFallback() {
   // Plain themed backdrop while a route chunk loads (avoids a white flash).
-  return <div style={{ minHeight: "100vh", background: "#0b0f1a" }} />;
+  return <div style={{ minHeight: "100vh", background: "var(--page-bg)" }} />;
 }
 
 function App() {

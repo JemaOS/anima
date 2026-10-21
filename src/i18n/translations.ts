@@ -27,6 +27,11 @@ const en = {
     developedBy: "Developed by",
     licenseLine: "© 2025 • Open Source & AGPL licensed",
 
+    theme: "Theme",
+    themeSystem: "System",
+    themeLight: "Light",
+    themeDark: "Dark",
+
     // PreJoinPage
     networkLost:
       "Network connection lost. Check your internet connection.",
@@ -255,6 +260,11 @@ export const translations: Record<Lang, Record<TranslationKey, string>> = {
     deleteThisMeeting: "Supprimer cette réunion",
     developedBy: "Développé par",
     licenseLine: "© 2025 • Open Source & sous licence AGPL",
+
+    theme: "Thème",
+    themeSystem: "Système",
+    themeLight: "Clair",
+    themeDark: "Sombre",
 
     // PreJoinPage
     networkLost:

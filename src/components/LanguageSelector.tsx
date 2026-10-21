@@ -60,7 +60,7 @@ function LanguageSelector() {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-32 rounded-lg bg-[#1a1a2e] border border-white/[0.08] shadow-lg overflow-hidden z-50">
+        <div className="absolute right-0 top-full mt-1 w-32 rounded-lg bg-[color:var(--surface-elevated)] border border-white/[0.08] shadow-lg overflow-hidden z-50">
           {Object.values(LANGUAGES).map((language) => (
             <button
               key={language.code}

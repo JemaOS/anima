@@ -4,6 +4,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Button, Icon, Avatar } from "@/components/ui";
+import { ThemeMenu } from "@/theme";
 import { useI18n } from "@/i18n";
 import { translate } from "@/i18n/translations";
 import { saveRecentRoom } from "@/utils/helpers";
@@ -515,6 +516,7 @@ const PreJoinHeader = ({
       </button>
 
       <div className="flex items-center gap-2 text-neutral-400">
+        <ThemeMenu />
         <span className="font-mono text-sm">{code}</span>
         <button
           onClick={onCopy}

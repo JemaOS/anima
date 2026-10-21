@@ -24,7 +24,7 @@ export function Avatar({ name, id, size = "md", className = "" }: AvatarProps) {
   return (
     <div
       className={`
-        rounded-full flex items-center justify-center font-medium text-white shadow-lg
+        avatar-initials rounded-full flex items-center justify-center font-medium text-white shadow-lg
         ${sizeStyles[size]} ${className}
       `}
       style={{ backgroundColor }}
