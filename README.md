@@ -17,6 +17,10 @@
 
 [Features](#-features) · [Screenshots](#-screenshots) · [Getting started](#-getting-started) · [Tech stack](#-tech-stack) · [License](#-license)
 
+<br>
+
+<sub>**Keywords:** video calling · video chat · peer-to-peer video call · WebRTC · P2P · end-to-end encryption · E2EE · no account · no logs · join by code · screen sharing · browser video conference · private calls · installable PWA · React · TypeScript · TailwindCSS</sub>
+
 </div>
 
 ![Anima — video calling](screenshots/main.png)
@@ -41,6 +45,10 @@
 | Light | Dark |
 | :---: | :---: |
 | <img src="screenshots/main.png" alt="Anima — light" /> | <img src="screenshots/main-dark.png" alt="Anima — dark" /> |
+
+<p align="center">
+  <img src="screenshots/meeting.png" width="880" alt="Anima — pre-join screen for a meeting code" />
+</p>
 
 ---
 
