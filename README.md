@@ -38,9 +38,9 @@
 
 ## 📸 Screenshots
 
-<p align="center">
-  <img src="screenshots/main.png" width="880" alt="Anima home screen" />
-</p>
+| Light | Dark |
+| :---: | :---: |
+| <img src="screenshots/main.png" alt="Anima — light" /> | <img src="screenshots/main-dark.png" alt="Anima — dark" /> |
 
 ---
 
