@@ -715,6 +715,7 @@ function TurnstileWidget({
 }
 
 function WebLoginForm({ onSuccess }: { onSuccess?: () => void }) {
+  const { t } = useI18n();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -749,11 +750,11 @@ function WebLoginForm({ onSuccess }: { onSuccess?: () => void }) {
       setCaptchaRequired(true);
       setCaptchaToken('');
       setCaptchaReset(value => value + 1);
-      setError('Vérification anti-robot requise. Validez le CAPTCHA et réessayez.');
+      setError(t('loginErrorCaptchaTurnstile'));
       setBusy(false);
       return;
     }
-    setError('Connexion impossible. Vérifiez vos identifiants Jema.');
+    setError(t('loginErrorGeneric'));
     setBusy(false);
   };
 
@@ -787,11 +788,11 @@ function WebLoginForm({ onSuccess }: { onSuccess?: () => void }) {
         marginTop: '0.5rem',
       }}
     >
-      <span style={labelStyle}>Compte Jema</span>
+      <span style={labelStyle}>{t('loginAccountLabel')}</span>
       <input
         type="email"
         required
-        placeholder="nom@exemple.com"
+        placeholder={t('loginAccountPlaceholder')}
         autoComplete="username"
         value={email}
         onChange={event => {
@@ -799,7 +800,7 @@ function WebLoginForm({ onSuccess }: { onSuccess?: () => void }) {
         }}
         style={inputStyle}
       />
-      <span style={labelStyle}>Mot de passe</span>
+      <span style={labelStyle}>{t('loginPasswordLabel')}</span>
       <input
         type="password"
         required
@@ -835,7 +836,7 @@ function WebLoginForm({ onSuccess }: { onSuccess?: () => void }) {
           marginTop: '0.25rem',
         }}
       >
-        {busy ? 'Connexion…' : 'Se connecter avec Jema'}
+        {busy ? t('loginSubmitting') : t('loginSubmit')}
       </button>
       {error !== null && (
         <p style={{ color: '#dc2626', fontSize: '0.85rem', margin: 0 }}>{error}</p>
