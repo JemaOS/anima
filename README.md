@@ -1,59 +1,109 @@
-# Anima - Secure Video Conferencing
+<div align="center">
 
-Anima is a modern, secure, and privacy-focused video conferencing application built with React, TypeScript, and WebRTC technologies.
+<h1>📹 Anima</h1>
 
-## Features
+### Secure, peer-to-peer video calling — no account, no logs
 
-- **Secure Video Calls**: End-to-end encryption support.
-- **Real-time Communication**: Low latency video and audio.
-- **Modern UI**: Built with TailwindCSS for a responsive and accessible interface.
-- **Privacy First**: Designed with user privacy as a core principle.
+[![Made by Jema Technology](https://img.shields.io/badge/Made%20by-Jema%20Technology-8286ef)](https://www.jematechnology.fr)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![React](https://img.shields.io/badge/React-18-61dafb?logo=react&logoColor=white)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5-3178c6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![WebRTC](https://img.shields.io/badge/WebRTC-P2P-333333?logo=webrtc&logoColor=white)](https://webrtc.org)
+[![Vite](https://img.shields.io/badge/Vite-6-646cff?logo=vite&logoColor=white)](https://vitejs.dev)
+[![PWA](https://img.shields.io/badge/PWA-Offline%20Ready-8286ef)](#-getting-started)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](#-contributing)
 
-## Tech Stack
+**New meeting in one click · join by code · end-to-end encryption · peer-to-peer**
 
-- **Frontend**: React 18, TypeScript
-- **Build Tool**: Vite
-- **Styling**: TailwindCSS
-- **Testing**: Vitest, React Testing Library, Playwright
+[Features](#-features) · [Screenshots](#-screenshots) · [Getting started](#-getting-started) · [Tech stack](#-tech-stack) · [License](#-license)
 
-## Getting Started
+</div>
+
+![Anima — video calling](screenshots/main.png)
+
+---
+
+## ✨ Features
+
+- 🔐 **End-to-end encryption** for media streams
+- 🌐 **Peer-to-peer** — calls connect directly, not through a central server
+- 🚪 **No account required** — start or join a room instantly
+- 🔑 **Join by code** — share a short meeting code
+- 🚫 **Zero logs** — privacy by design
+- 🖥️ **Screen sharing** and in-call controls
+- 🎨 **Modern UI** built with TailwindCSS, responsive and accessible
+- 📶 **Installable PWA** — works offline once installed
+
+---
+
+## 📸 Screenshots
+
+<p align="center">
+  <img src="screenshots/main.png" width="880" alt="Anima home screen" />
+</p>
+
+---
+
+## 🚀 Getting started
 
 ### Prerequisites
 
-- Node.js (v18 or higher)
-- pnpm (v8 or higher)
+- [Node.js](https://nodejs.org) 18+
+- npm
 
-### Installation
+### Development
 
-1. Clone the repository:
+```bash
+git clone https://github.com/JemaOS/anima.git
+cd anima
+npm install
+npm run dev
+```
 
-   ```bash
-   git clone https://github.com/johnkryptochain/anima.git
-   cd anima
-   ```
+### Build
 
-2. Install dependencies:
+```bash
+npm run build       # production build
+npm run build:prod  # production build (prod mode)
+npm run preview     # preview locally
+```
 
-   ```bash
-   pnpm install
-   ```
+### Tests
 
-3. Start the development server:
-   ```bash
-   pnpm dev
-   ```
+```bash
+npm test            # unit tests (Vitest)
+npm run test:e2e    # end-to-end tests (Playwright)
+npm run lint        # ESLint
+```
 
-## Scripts
+---
 
-- `pnpm dev`: Start development server
-- `pnpm build`: Build for production
-- `pnpm test`: Run unit and integration tests
-- `pnpm test:e2e`: Run end-to-end tests
-- `pnpm lint`: Run ESLint
+## 🛠️ Tech stack
 
-## License
+- **React 18** + **TypeScript** + **Vite**
+- **WebRTC** via `simple-peer` / `peerjs`
+- **TweetNaCl** for end-to-end encryption
+- **TailwindCSS** + **Radix UI**
+- **Vitest** + **Playwright** for tests
 
-Copyright (c) 2025 Jema Technology.
+---
 
-This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
-See the [LICENSE](LICENSE) file for details.
+## 🤝 Contributing
+
+Contributions are welcome! Fork, branch, and open a pull request.
+
+```bash
+git checkout -b feat/my-feature
+git commit -m "feat: my feature"
+git push origin feat/my-feature
+```
+
+---
+
+## 📄 License
+
+Released under the **GNU AGPL-3.0** — see [LICENSE](LICENSE).
+
+<div align="center">
+Made with ❤️ by <a href="https://www.jematechnology.fr">Jema Technology</a>
+</div>
