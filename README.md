@@ -50,6 +50,12 @@
   <img src="screenshots/meeting.png" width="880" alt="Anima — pre-join screen for a meeting code" />
 </p>
 
+### 📱 Mobile
+
+| Dark | Light |
+| :---: | :---: |
+| <img src="screenshots/mobile-dark.png" alt="Anima — mobile, dark" width="300" /> | <img src="screenshots/mobile-light.png" alt="Anima — mobile, light" width="300" /> |
+
 ---
 
 ## 🚀 Getting started
